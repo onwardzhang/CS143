@@ -18,6 +18,7 @@ using namespace std;
 BTreeIndex::BTreeIndex()
 {
     rootPid = -1;
+    treeHeight = 0;
 }
 
 /*
@@ -29,6 +30,41 @@ BTreeIndex::BTreeIndex()
  */
 RC BTreeIndex::open(const string& indexname, char mode)
 {
+    RC rc = pf.open(indexname, mode);
+    if (rc < 0) {  //open failed
+        return rc;
+    }
+    if (mode == 'r') { //read
+        char buffer[PageFile::PAGE_SIZE];
+        rc = pf.read(0, buffer);
+        if (rc < 0) {
+            return rc;
+        }
+        memcpy(&rootPid, buffer, sizeof(PageId));
+        memcpy(&treeHeight, buffer + sizeof(PageId), sizeof(int));
+//        int* intBuffPtr = (int*) buffer; // todo: 查这个用法
+//        rootPid =  intBuffPtr[0];
+//        treeHeight = intBuffPtr[1];
+    } else { //write
+        if (pf.endPid() == 0) { //create a new index file, write the initial info to first page
+            char buffer[PageFile::PAGE_SIZE];
+            memcpy(buffer, &rootPid, sizeof(PageId));
+            memcpy(buffer + sizeof(PageId), &treeHeight, sizeof(int));
+            rc  = pf.write(0, buffer);
+            if (rc < 0) {
+                return rc;
+            }
+        } else { // the index file already exists, read the information about the tree, same as mode 'r'
+            char buffer[PageFile::PAGE_SIZE];
+            rc = pf.read(0, buffer);
+            if (rc < 0) {
+                return rc;
+            }
+            memcpy(&rootPid, buffer, sizeof(PageId));
+            memcpy(&treeHeight, buffer + sizeof(PageId), sizeof(int));
+        }
+        //todo: do we need to create a root node now?
+    }
     return 0;
 }
 
@@ -38,7 +74,19 @@ RC BTreeIndex::open(const string& indexname, char mode)
  */
 RC BTreeIndex::close()
 {
-    return 0;
+    //before close, write the updated treeHeight (and rootPid) to the disk
+    RC rc;
+    char buffer[PageFile::PAGE_SIZE];
+    memcpy(buffer, &rootPid, sizeof(PageId));
+    memcpy(buffer + sizeof(PageId), &treeHeight, sizeof(int));
+    rc = pf.write(0, buffer);
+    if (rc < 0) {
+        return rc;
+    }
+    rc = pf.close();
+    if (rc < 0) {
+        return rc;
+    }
 }
 
 /*
@@ -85,5 +133,6 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
  */
 RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
 {
+
     return 0;
 }
