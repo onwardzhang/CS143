@@ -78,6 +78,8 @@ class BTreeIndex {
    */
   RC locate(int searchKey, IndexCursor& cursor);
 
+  int insertHelper(int key, const RecordId& rid, int curtLevel, PageId curtPid, PageId &siblingPid);
+
   /**
    * Read the (key, rid) pair at the location specified by the index cursor,
    * and move foward the cursor to the next entry.

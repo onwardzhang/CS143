@@ -376,11 +376,11 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
     PageId newFirstPid;
     readEntry(NONLEAF_MAX_KEY_COUNT / 2, oldLastKey, oldLastPid);
     sibling.readEntry(0, newFirstKey, newFirstPid);
-    if (key > oldLastKey && key < newFirstKey) {
-        memcpy(buffer + splitPos, &pid, sizeof(PageId));//todo: 是否应该删除中间点？ 目前没删
-        memcpy(buffer + splitPos + sizeof(PageId), &key, sizeof(int));
-        keyCount++;
-        memcpy(buffer, &keyCount, sizeof(int));
+    if (key > oldLastKey && key < newFirstKey) { // 新加的点恰好是中点，则直接返回该值
+//        memcpy(buffer + splitPos, &pid, sizeof(PageId));//todo: 是否应该删除中间点？ 应该删，注释掉后相当于没加进去，即删了
+//        memcpy(buffer + splitPos + sizeof(PageId), &key, sizeof(int));
+//        keyCount++;
+//        memcpy(buffer, &keyCount, sizeof(int));
 
         midKey = key;
         return 0;
@@ -389,7 +389,9 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
     } else {
         insert(key, pid);
     }
-    midKey = oldLastKey;//todo: 是否应该删除中间点？ 目前没删
+    midKey = oldLastKey;//todo: 是否应该删除中间点？ 目前删了
+    //删除 oldLastKey
+    memset(buffer + splitPos - NONLEAF_ENTRY_SIZE, 0, (size_t) NONLEAF_ENTRY_SIZE);//todo:check whether delete successfully
     return 0;
 }
 
