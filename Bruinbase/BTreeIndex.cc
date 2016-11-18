@@ -211,6 +211,29 @@ int BTreeIndex:: insertHelper(int key, const RecordId& rid, int curtLevel, PageI
  */
 RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
 {
+    if (treeHeight == 0) { // <= 1 ? non-empty tree at least has treeHeight of 2.
+        cursor.eid = 0;
+        cursor.pid = 1;
+        return RC_NO_SUCH_RECORD;
+    }
+    int curtLevel = 1;
+    BTNonLeafNode *tempNode = new BTNonLeafNode();
+    PageId tempPid = rootPid;
+    int tempEid;
+    while (curtLevel++ < treeHeight) {
+        tempNode->read(tempPid, pf);
+        tempNode->locateChildPtr(searchKey, tempPid, tempEid);
+    }
+    cursor.pid = tempPid;
+    BTLeafNode *targetNode = new BTLeafNode();
+    targetNode->read(tempPid, pf);
+    RC rc;
+    rc = targetNode->locate(searchKey, cursor.eid);
+    if (rc != 0) {
+        return rc;
+    }
+    delete tempNode;//todo: necessary? others?
+    delete targetNode;
     return 0;
 }
 
@@ -224,6 +247,21 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
  */
 RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
 {
-
+    BTLeafNode *targetNode = new BTLeafNode();
+    targetNode->read(cursor.pid, pf);
+    targetNode->readEntry(cursor.eid, key, rid);
+    if (cursor.eid < targetNode->getKeyCount()) {
+        PageId nextPid = targetNode->getNextNodePtr();
+        if (nextPid == 0) { //todo: check
+            return RC_END_OF_TREE;
+        } else {
+            cursor.pid = nextPid;
+            cursor.eid = 0;
+        }
+    } else {
+        cursor.pid = cursor.pid;
+        cursor.eid++;
+    }
+    delete targetNode; //todo: necessary?
     return 0;
 }
