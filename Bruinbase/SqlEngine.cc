@@ -15,6 +15,7 @@
 #include "Bruinbase.h"
 #include "SqlEngine.h"
 #include "BTreeIndex.h"
+#include <unordered_set>
 
 using namespace std;
 
@@ -41,7 +42,7 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
   RecordId   rid;  // record cursor for table scanning
 
   RC     rc;
-  int    key;     
+  int    key;
   string value;
   int    count;
   int    diff;
@@ -52,6 +53,218 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
     return rc;
   }
 
+  /* *************************************************************************** */
+  BTreeIndex indexFile; // indexFile containing the B+ tree index
+  // open the index file
+  if ((rc = indexFile.open(table + ".idx", 'r')) < 0) { //todo:如果不存在indexFile，该命令是否还是会新建一个空的?
+    fprintf(stderr, "Error: indexFile %s does not exist\n", table.c_str());
+    return rc;
+  }
+  //todo: 前提是cond里只有关于key的限制，对value呢？
+  //how about create a vector<SelCond> to copy undone cond. or a vector records the index of undone cond.
+  vector<int> undoNEIndex; //存了cond[i].comp == NE
+  vector<int> undoValueIndex;//存了cond[i].attr == 2
+  unordered_set<int> NEKeys;
+  unordered_set<string> NEValues; //todo: <char*> or <string>?  <char*>貌似很危险。。。
+  unordered_set<string> EQValue; // todo: EQValue actually doesn't need a set,  just a string is enough
+
+
+  if (cond.size() > 1) {//e.g. WHERE KEY > 100 AND KEY >= 102 AND KEY < 1000 AND KEY <= 998 AND KEY = 100
+    // compute range
+    int lowerBound = -2147483648;
+    int upperBound = 2147483647;
+    for (unsigned i = 0; i < cond.size(); i++) {
+
+      if (cond[i].attr == 2) { // 如果condition是关于value的，跳过？
+        //undoValueIndex.push_back(i);
+        switch(cond[i].comp) {
+          case SelCond::EQ:
+            string strEQ(cond[i].value); //todo: check!!
+            EQValue.insert(strEQ);
+            if (EQValue.size() > 1) {
+              return RC_NO_SUCH_RECORD;
+            }
+            break;
+          case SelCond::NE:
+            string strNE(cond[i].value);//todo: check!!
+            NEValues.insert(strNE);
+            break;
+          default:
+            return RC_NO_SUCH_RECORD;//if other comparator for value, then return RC_NO_SUCH_RECORD
+        }
+        continue;
+      }
+
+      switch (cond[i].comp) {
+        //todo: 包含EQ,NE这种输入情况需要处理么 ？ 需要
+        case SelCond::EQ:
+          if (atoi(cond[i].value) > lowerBound && atoi(cond[i].value) < upperBound) { //EQ value 在当前范围内
+            upperBound = atoi(cond[i].value) + 1;
+            lowerBound = upperBound - 2;
+          } else {
+            return RC_NO_SUCH_RECORD;
+          }
+          break;
+        case SelCond::NE:
+          if (atoi(cond[i].value) > lowerBound && atoi(cond[i].value) < upperBound) {
+            //todo: split the range / deal with it later
+            //undoNEIndex.push_back(i);
+            NEKeys.insert(atoi(cond[i].value));
+          }
+          break;
+        case SelCond::GT:
+          lowerBound = lowerBound > atoi(cond[i].value) ? lowerBound : atoi(cond[i].value);
+          break;
+        case SelCond::GE:
+          lowerBound = lowerBound > atoi(cond[i].value) - 1 ? lowerBound : atoi(cond[i].value) - 1;
+          break;
+        case SelCond::LT:
+          upperBound = upperBound < atoi(cond[i].value) ? upperBound : atoi(cond[i].value);
+          break;
+        case SelCond::LE:
+          upperBound = upperBound < atoi(cond[i].value) + 1 ? upperBound : atoi(cond[i].value) + 1;
+          break;
+      }
+      if (lowerBound >= upperBound) {
+        return RC_NO_SUCH_RECORD;
+      }
+    }
+
+    if (lowerBound >= upperBound) {
+      return RC_NO_SUCH_RECORD;
+    }
+    // todo: use index to search
+/*
+  RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
+ * If an index entry with
+    * searchKey exists in the leaf node, set IndexCursor to its location
+    * (i.e., IndexCursor.pid = PageId of the leaf node, and
+    * IndexCursor.eid = the searchKey index entry number.) and return 0.
+    * If not, set IndexCursor.pid = PageId of the leaf node and
+    * IndexCursor.eid = the index entry immediately after the largest
+    * index key that is smaller than searchKey, and return the error
+    * code RC_NO_SUCH_RECORD.
+           * Using the returned "IndexCursor", you will have to call readForward()
+    * to retrieve the actual (key, rid) pair from the index.*/
+
+/*    RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
+    Read the (key, rid) pair at the location specified by the index cursor,
+    * and move forward the cursor to the next entry.*/
+
+    //todo: do the undo condition
+//    vector<int> undoNEIndex; //存了cond[i].comp == NE
+//    vector<int> undoValueIndex;//存了cond[i].attr == 2
+//todo: deal with count!
+    IndexCursor cursor;
+    if (lowerBound == upperBound - 2) { //single tuple, key = lowerBound + 1
+
+      // check all NE condition for key
+      if (NEKeys.count(lowerBound + 1) != 0) { // if the only possible key is in the NEKeys set, then it should be abandoned
+        return RC_NO_SUCH_RECORD;
+      }
+/*      for (int i = 0; i < undoNEIndex.size(); i++) {
+        if (lowerBound + 1 == atoi(cond[undoNEIndex[i]].value)) { //NE value = possible key
+          return RC_NO_SUCH_RECORD;
+        }
+      }*/
+
+
+      rc = indexFile.locate(lowerBound + 1, cursor);//locate the key
+      if (rc != 0) { //not find the key
+        return RC_NO_SUCH_RECORD;
+      } else {         // find the key and read the tuple
+        //todo: maybe can wrap to a function to print a tuple
+        indexFile.readForward(cursor, key, rid);//get rid
+
+        //if select only key and no condition on value then there is no need to read the tuple, just return the key
+        if (attr == 1 && EQValue.size() == 0 && NEValues.size() == 0) {
+          fprintf(stdout, "%d\n", key);
+        } else {
+          // read the tuple (key, value)
+          if ((rc = rf.read(rid, key, value)) < 0) {
+            fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+            goto exit_select;
+          }
+          //check all value condition
+          if (EQValue.size() != 0 && EQValue.count(value) == 0) {
+            return RC_NO_SUCH_RECORD;
+          }
+          if (NEValues.size() != 0 && NEValues.count(value) == 1) {
+            return RC_NO_SUCH_RECORD;
+          }
+/*          for (int i = 0; i < undoValueIndex.size(); i++) {
+            switch (cond[undoValueIndex[i]].comp) {
+              case SelCond::EQ:
+                if (strcmp(value.c_str(), cond[undoValueIndex[i]].value) != 0) {
+                  return RC_NO_SUCH_RECORD;
+                }
+                break;
+              case SelCond::NE:
+                if (strcmp(value.c_str(), cond[undoValueIndex[i]].value) == 0) {
+                  return RC_NO_SUCH_RECORD;
+                }
+                break;
+              default:
+                return RC_NO_SUCH_RECORD;
+            }
+          }*/
+          //print result
+          switch (attr) {
+            case 2:  // SELECT value
+              fprintf(stdout, "%s\n", value.c_str());
+              break;
+            case 3:  // SELECT *
+              fprintf(stdout, "%d '%s'\n", key, value.c_str());
+              break;
+          }
+        }
+      }
+    } else { // a range of tuples
+      rc = indexFile.locate(lowerBound + 1, cursor);//locate the lowerBound + 1 (the first possible key)
+      key = lowerBound + 1;
+      while (key < upperBound) {
+        //todo: 读到了文件尾怎么办， 比如upperBound无穷大的情况。
+        indexFile.readForward(cursor, key, rid);//get key and rid
+
+        // check all NE condition for key
+        if (NEKeys.count(key) != 0) { // if the possible key is in the NEKeys set, then it should be abandoned
+          continue;
+        }
+
+        if (attr == 1 && EQValue.size() == 0 && NEValues.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
+          fprintf(stdout, "%d\n", key);
+        } else {
+          // read the tuple
+          if ((rc = rf.read(rid, key, value)) < 0) {
+            fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+            goto exit_select;
+          }
+
+          //check all value condition
+          if (EQValue.size() != 0 && EQValue.count(value) == 0) { //todo: if condition 只有value限制的话是否还需要用B+ tree
+            continue;
+          }
+          if (NEValues.size() != 0 && NEValues.count(value) == 1) {
+            continue;
+          }
+
+          //print result
+          switch (attr) {
+            case 2:  // SELECT value
+              fprintf(stdout, "%s\n", value.c_str());
+              break;
+            case 3:  // SELECT *
+              fprintf(stdout, "%d '%s'\n", key, value.c_str());
+              break;
+          }
+        }
+      }
+    }
+
+  } else { //todo: single condition e.g. WHERE KEY = / <> 100 或 count(*) 或 value <> "sss"
+
+  }
+  /* *************************************************************************** */
   // scan the table file from the beginning
   rid.pid = rid.sid = 0;
   count = 0;
@@ -97,11 +310,11 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
       }
     }
 
-    // the condition is met for the tuple. 
+    // the condition is met for the tuple.
     // increase matching tuple counter
     count++;
 
-    // print the tuple 
+    // print the tuple
     switch (attr) {
     case 1:  // SELECT key
       fprintf(stdout, "%d\n", key);
@@ -191,7 +404,7 @@ RC SqlEngine::parseLoadLine(const string& line, int& key, string& value)
     const char *s;
     char        c;
     string::size_type loc;
-    
+
     // ignore beginning white spaces
     c = *(s = line.c_str());
     while (c == ' ' || c == '\t') { c = *++s; }
@@ -205,9 +418,9 @@ RC SqlEngine::parseLoadLine(const string& line, int& key, string& value)
 
     // ignore white spaces
     do { c = *++s; } while (c == ' ' || c == '\t');
-    
+
     // if there is nothing left, set the value to empty string
-    if (c == 0) { 
+    if (c == 0) {
         value.erase();
         return 0;
     }
