@@ -15,7 +15,9 @@
 #include "Bruinbase.h"
 #include "SqlEngine.h"
 #include "BTreeIndex.h"
-#include <unordered_set>
+//#include <unordered_set>
+//#include <string>
+#include <limits.h>
 
 using namespace std;
 
@@ -44,8 +46,7 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
   RC     rc;
   int    key;
   string value;
-  int    count;
-  int    diff;
+  int    count = 0;
 
   // open the table file
   if ((rc = rf.open(table + ".tbl", 'r')) < 0) {
@@ -54,86 +55,89 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
   }
 
   /* *************************************************************************** */
-  BTreeIndex indexFile; // indexFile containing the B+ tree index
-  // open the index file
-  if ((rc = indexFile.open(table + ".idx", 'r')) < 0) { //todo:如果不存在indexFile，该命令是否还是会新建一个空的?
-    fprintf(stderr, "Error: indexFile %s does not exist\n", table.c_str());
-    return rc;
-  }
-  //todo: 前提是cond里只有关于key的限制，对value呢？
+
+  //前提是cond里只有关于key的限制，对value呢？
   //how about create a vector<SelCond> to copy undone cond. or a vector records the index of undone cond.
-  vector<int> undoNEIndex; //存了cond[i].comp == NE
-  vector<int> undoValueIndex;//存了cond[i].attr == 2
-  unordered_set<int> NEKeys;
-  unordered_set<string> NEValues; //todo: <char*> or <string>?  <char*>貌似很危险。。。
-  unordered_set<string> EQValue; // todo: EQValue actually doesn't need a set,  just a string is enough
+//  vector<int> undoNEIndex; //存了cond[i].comp == NE
+//  vector<int> undoValueIndex;//存了cond[i].attr == 2
 
-
-  if (cond.size() > 1) {//e.g. WHERE KEY > 100 AND KEY >= 102 AND KEY < 1000 AND KEY <= 998 AND KEY = 100
+  //todo: check undo condition can be wrapped,  and just use vector<SelCond> and the original check statements
+  //unordered_set<int> NEKeys;
+  vector<int> NEKeysV;
+  //unordered_set<string> NEValues; //todo: <char*> or <string>?  <char*>貌似很危险。。。
+  vector<string> NEValuesV;
+  //unordered_set<string> EQValue; // todo: EQValue actually doesn't need a set,  just a string is enough
+  vector<string> EQValueV;
+  //if (cond.size() > 1) {//e.g. WHERE KEY > 100 AND KEY >= 102 AND KEY < 1000 AND KEY <= 998 AND KEY = 100
     // compute range
-    int lowerBound = -2147483648;
-    int upperBound = 2147483647;
-    for (unsigned i = 0; i < cond.size(); i++) {
+    int lowerBound = INT_MIN;
+    int upperBound = INT_MAX;
 
+    for (unsigned i = 0; i < cond.size(); i++) {
       if (cond[i].attr == 2) { // 如果condition是关于value的，跳过？
         //undoValueIndex.push_back(i);
-        switch(cond[i].comp) {
-          case SelCond::EQ:
-            string strEQ(cond[i].value); //todo: check!!
-            EQValue.insert(strEQ);
-            if (EQValue.size() > 1) {
-              return RC_NO_SUCH_RECORD;
-            }
+        switch (cond[i].comp) {
+          case SelCond::EQ: {
+            string strEQ(cond[i].value);
+            //todo: check!! cond[i].value 的type是char*
+            //EQValue.insert(strEQ);
+            EQValueV.push_back(strEQ);//用vector就可能有重复元素了
+            //if (EQValue.size() > 1) { // cannot have two different EQ value
+//            if (EQValueV.size() > 1) { // cannot have two different EQ value
+//              return RC_NO_SUCH_RECORD;
+//            }
             break;
-          case SelCond::NE:
+          }
+          case SelCond::NE: {
             string strNE(cond[i].value);//todo: check!!
-            NEValues.insert(strNE);
+            //NEValues.insert(strNE);
+            NEValuesV.push_back(strNE);
             break;
+          }
           default:
-            return RC_NO_SUCH_RECORD;//if other comparator for value, then return RC_NO_SUCH_RECORD
+            return RC_NO_SUCH_RECORD;//todo: if other comparator for value, then return RC_NO_SUCH_RECORD
         }
         continue;
       }
-
+      //todo: lowerBound upperBound是 >,< 还是>= <=好？， 应该是取等好,已改为取等！
       switch (cond[i].comp) {
-        //todo: 包含EQ,NE这种输入情况需要处理么 ？ 需要
         case SelCond::EQ:
           if (atoi(cond[i].value) > lowerBound && atoi(cond[i].value) < upperBound) { //EQ value 在当前范围内
-            upperBound = atoi(cond[i].value) + 1;
-            lowerBound = upperBound - 2;
+            upperBound = atoi(cond[i].value);
+            lowerBound = upperBound;
           } else {
             return RC_NO_SUCH_RECORD;
           }
           break;
         case SelCond::NE:
-          if (atoi(cond[i].value) > lowerBound && atoi(cond[i].value) < upperBound) {
-            //todo: split the range / deal with it later
+          if (atoi(cond[i].value) >= lowerBound && atoi(cond[i].value) <= upperBound) {
             //undoNEIndex.push_back(i);
-            NEKeys.insert(atoi(cond[i].value));
+           // NEKeys.insert(atoi(cond[i].value));
+            NEKeysV.push_back(atoi(cond[i].value));
           }
           break;
         case SelCond::GT:
-          lowerBound = lowerBound > atoi(cond[i].value) ? lowerBound : atoi(cond[i].value);
+          lowerBound = lowerBound > (atoi(cond[i].value) + 1) ? lowerBound : (atoi(cond[i].value) + 1);
           break;
         case SelCond::GE:
-          lowerBound = lowerBound > atoi(cond[i].value) - 1 ? lowerBound : atoi(cond[i].value) - 1;
+          lowerBound = lowerBound > atoi(cond[i].value) ? lowerBound : atoi(cond[i].value);
           break;
         case SelCond::LT:
-          upperBound = upperBound < atoi(cond[i].value) ? upperBound : atoi(cond[i].value);
+          upperBound = upperBound < (atoi(cond[i].value) - 1) ? upperBound : (atoi(cond[i].value) - 1);
           break;
         case SelCond::LE:
-          upperBound = upperBound < atoi(cond[i].value) + 1 ? upperBound : atoi(cond[i].value) + 1;
+          upperBound = upperBound < atoi(cond[i].value) ? upperBound : atoi(cond[i].value);
           break;
       }
-      if (lowerBound >= upperBound) {
+      if (lowerBound > upperBound) {
         return RC_NO_SUCH_RECORD;
       }
     }
 
-    if (lowerBound >= upperBound) {
+    if (lowerBound > upperBound) { //应该可以不必冗余check
       return RC_NO_SUCH_RECORD;
     }
-    // todo: use index to search
+
 /*
   RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
  * If an index entry with
@@ -151,47 +155,82 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
     Read the (key, rid) pair at the location specified by the index cursor,
     * and move forward the cursor to the next entry.*/
 
-    //todo: do the undo condition
 //    vector<int> undoNEIndex; //存了cond[i].comp == NE
 //    vector<int> undoValueIndex;//存了cond[i].attr == 2
 //todo: deal with count!
-    IndexCursor cursor;
-    if (lowerBound == upperBound - 2) { //single tuple, key = lowerBound + 1
+    //todo : deal with attr == 4(count(*))
 
-      // check all NE condition for key
-      if (NEKeys.count(lowerBound + 1) != 0) { // if the only possible key is in the NEKeys set, then it should be abandoned
-        return RC_NO_SUCH_RECORD;
+
+/*  todo: 判断是否要使用index
+ * if(min_key > -1 || max_key < INT_MAX || attr == 1 || attr == 4)
+      use_index = true;*/
+    bool useIndex = lowerBound > INT_MIN || upperBound < INT_MAX;
+    if (useIndex) {
+      BTreeIndex indexFile; // indexFile containing the B+ tree index
+      // open the index file
+      if ((rc = indexFile.open(table + ".idx", 'r')) < 0) { //todo:如果不存在indexFile，该命令是否还是会新建一个空的?
+        fprintf(stderr, "Error: indexFile %s does not exist\n", table.c_str());
+        return rc;
       }
+      // use index to search
+      IndexCursor cursor;
+      if (lowerBound == upperBound) { //single tuple, key = lowerBound
+
+        // check all NE condition for key
+//        if (NEKeys.count(lowerBound) != 0) { // if the only possible key is in the NEKeys set, then it should be abandoned
+//          return RC_NO_SUCH_RECORD;
+//        }
+        for (int i = 0; i < NEKeysV.size(); i++) {
+          if (lowerBound == NEKeysV[i]) {
+            return RC_NO_SUCH_RECORD;
+          }
+        }
 /*      for (int i = 0; i < undoNEIndex.size(); i++) {
         if (lowerBound + 1 == atoi(cond[undoNEIndex[i]].value)) { //NE value = possible key
           return RC_NO_SUCH_RECORD;
         }
       }*/
 
+        rc = indexFile.locate(lowerBound, cursor);//locate the key
+        if (rc != 0) { //not find the key
+          return RC_NO_SUCH_RECORD;
+        } else {         // find the key and read the tuple
+          //todo: maybe can wrap to a function to print a tuple
+          indexFile.readForward(cursor, key, rid);//get rid
 
-      rc = indexFile.locate(lowerBound + 1, cursor);//locate the key
-      if (rc != 0) { //not find the key
-        return RC_NO_SUCH_RECORD;
-      } else {         // find the key and read the tuple
-        //todo: maybe can wrap to a function to print a tuple
-        indexFile.readForward(cursor, key, rid);//get rid
-
-        //if select only key and no condition on value then there is no need to read the tuple, just return the key
-        if (attr == 1 && EQValue.size() == 0 && NEValues.size() == 0) {
-          fprintf(stdout, "%d\n", key);
-        } else {
-          // read the tuple (key, value)
-          if ((rc = rf.read(rid, key, value)) < 0) {
-            fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
-            goto exit_select;
-          }
-          //check all value condition
-          if (EQValue.size() != 0 && EQValue.count(value) == 0) {
-            return RC_NO_SUCH_RECORD;
-          }
-          if (NEValues.size() != 0 && NEValues.count(value) == 1) {
-            return RC_NO_SUCH_RECORD;
-          }
+          //if select only key and no condition on value then there is no need to read the tuple, just return the key
+          //if ((attr == 1 || attr == 4) && EQValue.size() == 0 && NEValues.size() == 0) {
+          if ((attr == 1 || attr == 4) && EQValueV.size() == 0 && NEValuesV.size() == 0) {
+            if (attr == 1) {
+              fprintf(stdout, "%d\n", key);
+            } else {
+              fprintf(stdout, "%d\n", 1);//count = 1
+            }
+          } else {
+            // read the tuple (key, value)
+            if ((rc = rf.read(rid, key, value)) < 0) {
+              fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+              goto exit_select;
+            }
+            //check all value condition
+//            if (EQValue.size() != 0 && EQValue.count(value) == 0) {
+//              return RC_NO_SUCH_RECORD;
+//            }
+//            if (NEValues.size() != 0 && NEValues.count(value) == 1) {
+//              return RC_NO_SUCH_RECORD;
+//            }
+            //if (EQValueV.size() != 0) {
+              for (int i = 0; i < EQValueV.size(); i++) {
+                if (value != EQValueV[i]) { //todo: check != / == for string or char*
+                  return RC_NO_SUCH_RECORD;
+                }
+              }
+            //}
+            for (int i = 0; i < NEValuesV.size(); i++) {
+              if (value == NEValuesV[i]) {
+                return RC_NO_SUCH_RECORD;
+              }
+            }
 /*          for (int i = 0; i < undoValueIndex.size(); i++) {
             switch (cond[undoValueIndex[i]].comp) {
               case SelCond::EQ:
@@ -208,134 +247,189 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
                 return RC_NO_SUCH_RECORD;
             }
           }*/
-          //print result
-          switch (attr) {
-            case 2:  // SELECT value
-              fprintf(stdout, "%s\n", value.c_str());
-              break;
-            case 3:  // SELECT *
-              fprintf(stdout, "%d '%s'\n", key, value.c_str());
-              break;
+            //print result
+            switch (attr) {
+              case 1:
+                fprintf(stdout, "%d\n", key);
+                break;
+              case 2:  // SELECT value
+                fprintf(stdout, "%s\n", value.c_str());
+                break;
+              case 3:  // SELECT *
+                fprintf(stdout, "%d '%s'\n", key, value.c_str());
+                break;
+              case 4:
+                fprintf(stdout, "%d\n", 1);//count = 1
+                break;
+            }
+            //todo: 记得输出所有结果后退出select
           }
+        }
+      } else { // a range of tuples
+        indexFile.locate(lowerBound, cursor);//locate the lowerBound (the first possible key)
+        //key = lowerBound;
+        while (indexFile.readForward(cursor, key, rid) == 0) {//get key and rid
+          // readForward return RC_END_OF_TREE if reach the end of the tree;
+
+          if (key > upperBound) {
+            break;
+          }
+          // check all NE condition for key
+//          if (NEKeys.count(key) != 0) { // if the possible key is in the NEKeys set, then it should be abandoned
+//            continue;
+//          }
+          int i = 0;
+          for (; i < NEKeysV.size(); i++) {
+            if (lowerBound == NEKeysV[i]) {
+              break;
+            }
+          }
+          if (i != NEKeysV.size()) {
+            continue;
+          }
+
+          //if ((attr == 1 || attr == 4) && EQValue.size() == 0 &&
+              //NEValues.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
+          if ((attr == 1 || attr == 4) && EQValueV.size() == 0 &&
+              NEValuesV.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
+            if (attr == 1) {
+              fprintf(stdout, "%d\n", key);
+            }
+            count++;
+          } else {
+            // read the tuple
+            if ((rc = rf.read(rid, key, value)) < 0) {
+              fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+              goto exit_select;
+            }
+
+            //check all value condition
+//            if (EQValue.size() != 0 && EQValue.count(value) == 0) { //todo: if condition 只有value限制的话是否还需要用B+ tree
+//              continue;
+//            }
+//            if (NEValues.size() != 0 && NEValues.count(value) == 1) {
+//              continue;
+//            }
+
+            //if (EQValueV.size() != 0) {
+            int j = 0;
+            for (; j < EQValueV.size(); j++) {
+              if (value != EQValueV[j]) { //todo: check != / == for string or char*
+                break;
+              }
+            }
+            if (j != EQValueV.size()) {
+              continue;
+            }
+            //}
+            int k = 0;
+            for (; k < NEValuesV.size(); k++) {
+              if (value == NEValuesV[k]) {
+                break;
+              }
+            }
+            if (k != NEValuesV.size()) {
+              continue;
+            }
+
+            //print result
+            switch (attr) {
+              case 1:
+                fprintf(stdout, "%d\n", key);
+                break;
+              case 2:  // SELECT value
+                fprintf(stdout, "%s\n", value.c_str());
+                break;
+              case 3:  // SELECT *
+                fprintf(stdout, "%d '%s'\n", key, value.c_str());
+                break;
+            }
+          }
+        }
+        if (attr == 4) {
+          fprintf(stdout, "%d\n", count);
         }
       }
-    } else { // a range of tuples
-      rc = indexFile.locate(lowerBound + 1, cursor);//locate the lowerBound + 1 (the first possible key)
-      key = lowerBound + 1;
-      while (key < upperBound) {
-        //todo: 读到了文件尾怎么办， 比如upperBound无穷大的情况。
-        indexFile.readForward(cursor, key, rid);//get key and rid
-
-        // check all NE condition for key
-        if (NEKeys.count(key) != 0) { // if the possible key is in the NEKeys set, then it should be abandoned
-          continue;
+      indexFile.close();
+    } else { //not use index， use original scanning method
+      int  diff;
+      // scan the table file from the beginning
+      rid.pid = rid.sid = 0;
+      count = 0;
+      while (rid < rf.endRid()) {
+        // read the tuple
+        if ((rc = rf.read(rid, key, value)) < 0) {
+          fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+          goto exit_select;
         }
 
-        if (attr == 1 && EQValue.size() == 0 && NEValues.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
-          fprintf(stdout, "%d\n", key);
-        } else {
-          // read the tuple
-          if ((rc = rf.read(rid, key, value)) < 0) {
-            fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
-            goto exit_select;
-          }
-
-          //check all value condition
-          if (EQValue.size() != 0 && EQValue.count(value) == 0) { //todo: if condition 只有value限制的话是否还需要用B+ tree
-            continue;
-          }
-          if (NEValues.size() != 0 && NEValues.count(value) == 1) {
-            continue;
-          }
-
-          //print result
-          switch (attr) {
-            case 2:  // SELECT value
-              fprintf(stdout, "%s\n", value.c_str());
+        // check the conditions on the tuple
+        for (unsigned i = 0; i < cond.size(); i++) {
+          // compute the difference between the tuple value and the condition value
+          switch (cond[i].attr) {
+            case 1:
+              diff = key - atoi(cond[i].value);
               break;
-            case 3:  // SELECT *
-              fprintf(stdout, "%d '%s'\n", key, value.c_str());
+            case 2:
+              diff = strcmp(value.c_str(), cond[i].value);
+              break;
+          }
+
+          // skip the tuple if any condition is not met
+          switch (cond[i].comp) {
+            case SelCond::EQ:
+              if (diff != 0) goto next_tuple;
+              break;
+            case SelCond::NE:
+              if (diff == 0) goto next_tuple;
+              break;
+            case SelCond::GT:
+              if (diff <= 0) goto next_tuple;
+              break;
+            case SelCond::LT:
+              if (diff >= 0) goto next_tuple;
+              break;
+            case SelCond::GE:
+              if (diff < 0) goto next_tuple;
+              break;
+            case SelCond::LE:
+              if (diff > 0) goto next_tuple;
               break;
           }
         }
+
+        // the condition is met for the tuple.
+        // increase matching tuple counter
+        count++;
+
+        // print the tuple
+        switch (attr) {
+          case 1:  // SELECT key
+            fprintf(stdout, "%d\n", key);
+            break;
+          case 2:  // SELECT value
+            fprintf(stdout, "%s\n", value.c_str());
+            break;
+          case 3:  // SELECT *
+            fprintf(stdout, "%d '%s'\n", key, value.c_str());
+            break;
+        }
+
+        // move to the next tuple
+        next_tuple:
+        ++rid;
+      }
+
+      // print matching tuple count if "select count(*)"
+      if (attr == 4) {
+        fprintf(stdout, "%d\n", count);
       }
     }
-
-  } else { //todo: single condition e.g. WHERE KEY = / <> 100 或 count(*) 或 value <> "sss"
-
-  }
+//  } else { //single condition e.g. WHERE KEY = / <> 100 或 count(*) 或 value <> "sss", probably can be combined to the former situation
+//
+//  }
   /* *************************************************************************** */
-  // scan the table file from the beginning
-  rid.pid = rid.sid = 0;
-  count = 0;
-  while (rid < rf.endRid()) {
-    // read the tuple
-    if ((rc = rf.read(rid, key, value)) < 0) {
-      fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
-      goto exit_select;
-    }
 
-    // check the conditions on the tuple
-    for (unsigned i = 0; i < cond.size(); i++) {
-      // compute the difference between the tuple value and the condition value
-      switch (cond[i].attr) {
-      case 1:
-	diff = key - atoi(cond[i].value);
-	break;
-      case 2:
-	diff = strcmp(value.c_str(), cond[i].value);
-	break;
-      }
-
-      // skip the tuple if any condition is not met
-      switch (cond[i].comp) {
-      case SelCond::EQ:
-	if (diff != 0) goto next_tuple;
-	break;
-      case SelCond::NE:
-	if (diff == 0) goto next_tuple;
-	break;
-      case SelCond::GT:
-	if (diff <= 0) goto next_tuple;
-	break;
-      case SelCond::LT:
-	if (diff >= 0) goto next_tuple;
-	break;
-      case SelCond::GE:
-	if (diff < 0) goto next_tuple;
-	break;
-      case SelCond::LE:
-	if (diff > 0) goto next_tuple;
-	break;
-      }
-    }
-
-    // the condition is met for the tuple.
-    // increase matching tuple counter
-    count++;
-
-    // print the tuple
-    switch (attr) {
-    case 1:  // SELECT key
-      fprintf(stdout, "%d\n", key);
-      break;
-    case 2:  // SELECT value
-      fprintf(stdout, "%s\n", value.c_str());
-      break;
-    case 3:  // SELECT *
-      fprintf(stdout, "%d '%s'\n", key, value.c_str());
-      break;
-    }
-
-    // move to the next tuple
-    next_tuple:
-    ++rid;
-  }
-
-  // print matching tuple count if "select count(*)"
-  if (attr == 4) {
-    fprintf(stdout, "%d\n", count);
-  }
   rc = 0;
 
   // close the table file and return
