@@ -15,6 +15,7 @@
 #include "Bruinbase.h"
 #include "SqlEngine.h"
 #include "BTreeIndex.h"
+#include "RecordFile.h"
 //#include <unordered_set>
 //#include <string>
 #include <limits.h>
@@ -54,13 +55,9 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
     return rc;
   }
 
+  fprintf(stdout, "open table fine\n");
+
   /* *************************************************************************** */
-
-  //前提是cond里只有关于key的限制，对value呢？
-  //how about create a vector<SelCond> to copy undone cond. or a vector records the index of undone cond.
-//  vector<int> undoNEIndex; //存了cond[i].comp == NE
-//  vector<int> undoValueIndex;//存了cond[i].attr == 2
-
   //todo: check undo condition can be wrapped,  and just use vector<SelCond> and the original check statements
   //unordered_set<int> NEKeys;
   vector<int> NEKeysV;
@@ -138,220 +135,128 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
       return RC_NO_SUCH_RECORD;
     }
 
-/*
-  RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
- * If an index entry with
-    * searchKey exists in the leaf node, set IndexCursor to its location
-    * (i.e., IndexCursor.pid = PageId of the leaf node, and
-    * IndexCursor.eid = the searchKey index entry number.) and return 0.
-    * If not, set IndexCursor.pid = PageId of the leaf node and
-    * IndexCursor.eid = the index entry immediately after the largest
-    * index key that is smaller than searchKey, and return the error
-    * code RC_NO_SUCH_RECORD.
-           * Using the returned "IndexCursor", you will have to call readForward()
-    * to retrieve the actual (key, rid) pair from the index.*/
+  fprintf(stdout, "lowerBound: %d\n", lowerBound);
+  fprintf(stdout, "upperBound: %d\n", upperBound);
 
-/*    RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
-    Read the (key, rid) pair at the location specified by the index cursor,
-    * and move forward the cursor to the next entry.*/
-
-//    vector<int> undoNEIndex; //存了cond[i].comp == NE
-//    vector<int> undoValueIndex;//存了cond[i].attr == 2
-//todo: deal with count!
-    //todo : deal with attr == 4(count(*))
-
-
-/*  todo: 判断是否要使用index
- * if(min_key > -1 || max_key < INT_MAX || attr == 1 || attr == 4)
-      use_index = true;*/
-    bool useIndex = lowerBound > INT_MIN || upperBound < INT_MAX;
+//判断是否要使用index
+    bool useIndex = lowerBound > INT_MIN || upperBound < INT_MAX || attr == 4 || attr == 1;
     if (useIndex) {
+
+      fprintf(stdout, "use index\n");
+
       BTreeIndex indexFile; // indexFile containing the B+ tree index
       // open the index file
       if ((rc = indexFile.open(table + ".idx", 'r')) < 0) { //todo:如果不存在indexFile，该命令是否还是会新建一个空的?
         fprintf(stderr, "Error: indexFile %s does not exist\n", table.c_str());
         return rc;
       }
+
+      fprintf(stdout, "open indexFile successfully\n");
+
       // use index to search
       IndexCursor cursor;
-      if (lowerBound == upperBound) { //single tuple, key = lowerBound
+      indexFile.locate(lowerBound, cursor);//locate the lowerBound (the first possible key)
+      fprintf(stdout, "after locating pid: %d\n",cursor.pid);
+      fprintf(stdout, "eid: %d\n",cursor.eid);
 
+      while (indexFile.readForward(cursor, key, rid) == 0) {//get key and rid
+        fprintf(stdout, "begin reading tuples");
+        // readForward return RC_END_OF_TREE if reach the end of the tree;
+        fprintf(stdout, "pid: %d\n",cursor.pid);
+        fprintf(stdout, "eid: %d\n",cursor.eid);
+        fprintf(stdout, "key: %d\n",key);
+        fprintf(stdout, "rid: pid:%d, sid:%d\n",rid.pid, rid.sid);
+        if (key > upperBound) {
+          fprintf(stdout, "key > upperBound, break");
+          break;
+        }
         // check all NE condition for key
-//        if (NEKeys.count(lowerBound) != 0) { // if the only possible key is in the NEKeys set, then it should be abandoned
-//          return RC_NO_SUCH_RECORD;
-//        }
-        for (int i = 0; i < NEKeysV.size(); i++) {
-          if (lowerBound == NEKeysV[i]) {
-            return RC_NO_SUCH_RECORD;
-          }
-        }
-/*      for (int i = 0; i < undoNEIndex.size(); i++) {
-        if (lowerBound + 1 == atoi(cond[undoNEIndex[i]].value)) { //NE value = possible key
-          return RC_NO_SUCH_RECORD;
-        }
-      }*/
-
-        rc = indexFile.locate(lowerBound, cursor);//locate the key
-        if (rc != 0) { //not find the key
-          return RC_NO_SUCH_RECORD;
-        } else {         // find the key and read the tuple
-          //todo: maybe can wrap to a function to print a tuple
-          indexFile.readForward(cursor, key, rid);//get rid
-
-          //if select only key and no condition on value then there is no need to read the tuple, just return the key
-          //if ((attr == 1 || attr == 4) && EQValue.size() == 0 && NEValues.size() == 0) {
-          if ((attr == 1 || attr == 4) && EQValueV.size() == 0 && NEValuesV.size() == 0) {
-            if (attr == 1) {
-              fprintf(stdout, "%d\n", key);
-            } else {
-              fprintf(stdout, "%d\n", 1);//count = 1
-            }
-          } else {
-            // read the tuple (key, value)
-            if ((rc = rf.read(rid, key, value)) < 0) {
-              fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
-              goto exit_select;
-            }
-            //check all value condition
-//            if (EQValue.size() != 0 && EQValue.count(value) == 0) {
-//              return RC_NO_SUCH_RECORD;
-//            }
-//            if (NEValues.size() != 0 && NEValues.count(value) == 1) {
-//              return RC_NO_SUCH_RECORD;
-//            }
-            //if (EQValueV.size() != 0) {
-              for (int i = 0; i < EQValueV.size(); i++) {
-                if (value != EQValueV[i]) { //todo: check != / == for string or char*
-                  return RC_NO_SUCH_RECORD;
-                }
-              }
-            //}
-            for (int i = 0; i < NEValuesV.size(); i++) {
-              if (value == NEValuesV[i]) {
-                return RC_NO_SUCH_RECORD;
-              }
-            }
-/*          for (int i = 0; i < undoValueIndex.size(); i++) {
-            switch (cond[undoValueIndex[i]].comp) {
-              case SelCond::EQ:
-                if (strcmp(value.c_str(), cond[undoValueIndex[i]].value) != 0) {
-                  return RC_NO_SUCH_RECORD;
-                }
-                break;
-              case SelCond::NE:
-                if (strcmp(value.c_str(), cond[undoValueIndex[i]].value) == 0) {
-                  return RC_NO_SUCH_RECORD;
-                }
-                break;
-              default:
-                return RC_NO_SUCH_RECORD;
-            }
-          }*/
-            //print result
-            switch (attr) {
-              case 1:
-                fprintf(stdout, "%d\n", key);
-                break;
-              case 2:  // SELECT value
-                fprintf(stdout, "%s\n", value.c_str());
-                break;
-              case 3:  // SELECT *
-                fprintf(stdout, "%d '%s'\n", key, value.c_str());
-                break;
-              case 4:
-                fprintf(stdout, "%d\n", 1);//count = 1
-                break;
-            }
-            //todo: 记得输出所有结果后退出select
-          }
-        }
-      } else { // a range of tuples
-        indexFile.locate(lowerBound, cursor);//locate the lowerBound (the first possible key)
-        //key = lowerBound;
-        while (indexFile.readForward(cursor, key, rid) == 0) {//get key and rid
-          // readForward return RC_END_OF_TREE if reach the end of the tree;
-
-          if (key > upperBound) {
-            break;
-          }
-          // check all NE condition for key
 //          if (NEKeys.count(key) != 0) { // if the possible key is in the NEKeys set, then it should be abandoned
 //            continue;
 //          }
-          int i = 0;
-          for (; i < NEKeysV.size(); i++) {
-            if (lowerBound == NEKeysV[i]) {
-              break;
-            }
+        int i = 0;
+        for (; i < NEKeysV.size(); i++) {
+          if (key == NEKeysV[i]) {
+            fprintf(stdout, "key = NEKeysV, break");
+            break;
           }
-          if (i != NEKeysV.size()) {
-            continue;
+        }
+        if (i != NEKeysV.size()) {
+          fprintf(stdout, "i != NEKeysV.size(), break");
+          continue;
+        }
+
+        //if ((attr == 1 || attr == 4) && EQValue.size() == 0 &&
+            //NEValues.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
+        if ((attr == 1 || attr == 4) && EQValueV.size() == 0 &&
+            NEValuesV.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
+
+          fprintf(stdout, "easy search\n");
+
+          if (attr == 1) {
+            fprintf(stdout, "key: %d\n", key);
+          }
+          count++;
+        } else {
+          // read the tuple
+          if ((rc = rf.read(rid, key, value)) < 0) {
+            fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+            goto exit_select;
           }
 
-          //if ((attr == 1 || attr == 4) && EQValue.size() == 0 &&
-              //NEValues.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
-          if ((attr == 1 || attr == 4) && EQValueV.size() == 0 &&
-              NEValuesV.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
-            if (attr == 1) {
-              fprintf(stdout, "%d\n", key);
-            }
-            count++;
-          } else {
-            // read the tuple
-            if ((rc = rf.read(rid, key, value)) < 0) {
-              fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
-              goto exit_select;
-            }
-
-            //check all value condition
-//            if (EQValue.size() != 0 && EQValue.count(value) == 0) { //todo: if condition 只有value限制的话是否还需要用B+ tree
+          //check all value condition
+//            if (EQValue.size() != 0 && EQValue.count(value) == 0) { //if condition 只有value限制的话是否还需要用B+ tree - 不用
 //              continue;
 //            }
 //            if (NEValues.size() != 0 && NEValues.count(value) == 1) {
 //              continue;
 //            }
 
-            //if (EQValueV.size() != 0) {
-            int j = 0;
-            for (; j < EQValueV.size(); j++) {
-              if (value != EQValueV[j]) { //todo: check != / == for string or char*
-                break;
-              }
-            }
-            if (j != EQValueV.size()) {
-              continue;
-            }
-            //}
-            int k = 0;
-            for (; k < NEValuesV.size(); k++) {
-              if (value == NEValuesV[k]) {
-                break;
-              }
-            }
-            if (k != NEValuesV.size()) {
-              continue;
-            }
-
-            //print result
-            switch (attr) {
-              case 1:
-                fprintf(stdout, "%d\n", key);
-                break;
-              case 2:  // SELECT value
-                fprintf(stdout, "%s\n", value.c_str());
-                break;
-              case 3:  // SELECT *
-                fprintf(stdout, "%d '%s'\n", key, value.c_str());
-                break;
+          //if (EQValueV.size() != 0) {
+          int j = 0;
+          for (; j < EQValueV.size(); j++) {
+            if (value != EQValueV[j]) { //todo: check != / == for string or char*
+              break;
             }
           }
-        }
-        if (attr == 4) {
-          fprintf(stdout, "%d\n", count);
+          if (j != EQValueV.size()) {
+            continue;
+          }
+          //}
+          int k = 0;
+          for (; k < NEValuesV.size(); k++) {
+            if (value == NEValuesV[k]) {
+              break;
+            }
+          }
+          if (k != NEValuesV.size()) {
+            continue;
+          }
+          //meet all conditions, then count++, print result
+          count++;
+          //print result
+          switch (attr) {
+            case 1:
+              fprintf(stdout, "%d\n", key);
+              break;
+            case 2:  // SELECT value
+              fprintf(stdout, "%s\n", value.c_str());
+              break;
+            case 3:  // SELECT *
+              fprintf(stdout, "%d '%s'\n", key, value.c_str());
+              break;
+          }
         }
       }
-      indexFile.close();
+      if (attr == 4) {
+        fprintf(stdout, "%d\n", count);
+      }
+    indexFile.close();
+
     } else { //not use index， use original scanning method
+
+      fprintf(stdout, "not use index!\n");
+
       int  diff;
       // scan the table file from the beginning
       rid.pid = rid.sid = 0;
@@ -464,6 +369,7 @@ RC SqlEngine::load(const string& table, const string& loadfile, bool index)
     }
 
     if (index) {
+      fprintf(stdout, "begin loading\n");
         BTreeIndex indexFile;
 
         if (indexFile.open(table + ".idx", 'w') != 0) {
@@ -476,6 +382,7 @@ RC SqlEngine::load(const string& table, const string& loadfile, bool index)
             RecordId rid;
             parseLoadLine(line, key, value);
             rf.append(key, value, rid);
+          fprintf(stdout, "insert rid.pid%d, sid%d\n", rid.pid, rid.sid);
             indexFile.insert(key, rid);
         }
         indexFile.close();

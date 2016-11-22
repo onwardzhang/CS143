@@ -48,8 +48,8 @@ RC BTreeIndex::open(const string& indexname, char mode)
     } else { //write
         if (pf.endPid() == 0) { //create a new index file, write the initial info to first page
             char buffer[PageFile::PAGE_SIZE];
-            memcpy(buffer, &rootPid, sizeof(PageId));
-            memcpy(buffer + sizeof(PageId), &treeHeight, sizeof(int));
+            memcpy(buffer, &rootPid, sizeof(PageId));//-1
+            memcpy(buffer + sizeof(PageId), &treeHeight, sizeof(int));//0
             rc  = pf.write(0, buffer);
             if (rc < 0) {
                 return rc;
@@ -99,23 +99,36 @@ RC BTreeIndex::close()
 RC BTreeIndex::insert(int key, const RecordId& rid)
 {
     // tree is not empty, call insertHelper
+  fprintf(stdout, "begin inserting a tuple\n");
     if (treeHeight != 0) {
+      fprintf(stdout, "begin inserting a regular tuple\n");
         PageId siblingPid;
         insertHelper(key, rid, 1, rootPid, siblingPid);
     }
     // empty tree, create root
     else {
+      fprintf(stdout, "begin creating root\n");
         BTNonLeafNode *root = new BTNonLeafNode();
         BTLeafNode *left = new BTLeafNode();
         BTLeafNode *right = new BTLeafNode();
         rootPid = pf.endPid();// always 1? -- 对于新建的tree, 设置root的pid为1，左右叶节点的pid为2、3， 不断insert后，root会变
-        right->insert(key, rid);//put the key & rid in the right child
+      fprintf(stdout, "rootPid = %d\n", rootPid);
+      right->insert(key, rid);//put the key & rid in the right child
         root->initializeRoot(rootPid + 1, key, rootPid + 2);
         left->setNextNodePtr(rootPid + 2);//remember to set the sibling pid
         root->write(rootPid, pf);
         left->write(rootPid + 1, pf); //2?
         right->write(rootPid + 2, pf);//3?
-        treeHeight += 2; //remember to update the treeHeight
+        treeHeight += 2; //remember to update the treeHeight //todo: 本来是在close()时更新rootPid和treeHeight的
+
+      char buffer[PageFile::PAGE_SIZE];
+      //bzero(tmp_buffer, PageFile::PAGE_SIZE);//buffer是否需要初始化
+      //pf.read(0, buffer);
+      memcpy(buffer, &rootPid, sizeof(PageId));
+      memcpy(buffer + sizeof(PageId), &treeHeight, sizeof(int));
+      pf.write(0, buffer);
+
+      fprintf(stdout, "finish creating root\n");
     }
     return 0;
 }
@@ -123,6 +136,8 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 //siblingKey本身表示leaf node split后的 siblingKey，但也应该代表nonLeafNode split后的midKey, 所以统称为newKey
 //siblingPid 表示overflow后新建的node的pid
 int BTreeIndex:: insertHelper(int key, const RecordId& rid, int curtLevel, PageId curtPid, PageId &siblingPid) {
+  RC rc;
+  fprintf(stdout, "begin insertHelper\n");
     if (curtLevel == treeHeight) { //leaf node
         BTLeafNode *leaf = new BTLeafNode();
         leaf->read(curtPid, pf);
@@ -135,11 +150,17 @@ int BTreeIndex:: insertHelper(int key, const RecordId& rid, int curtLevel, PageI
             leaf->setNextNodePtr(siblingPid);
             leaf->write(curtPid, pf);
             sibling->write(siblingPid, pf);
-
+          fprintf(stdout, "siblingKey: %d\n",siblingKey);
             return siblingKey; // return the first sibling key to insert in the parent node
         }
         else { // leaf node not overflow
-            leaf->write(curtPid, pf);
+          fprintf(stdout, "leafnode not overflow\n");
+          fprintf(stdout, "rootPid = %d\n", rootPid);
+            rc = leaf->write(curtPid, pf);
+          if (rc != 0) {
+            fprintf(stdout, "rc = leaf->write(curtPid, pf) fail, rc =%d\n", rc);
+            return rc;
+          }
             return 0;
         }
     }
@@ -148,9 +169,11 @@ int BTreeIndex:: insertHelper(int key, const RecordId& rid, int curtLevel, PageI
         nonLeaf->read(curtPid, pf);
         PageId childPid;
         int uselessEid;
-        nonLeaf->locateChildPtr(key, childPid, uselessEid);
+        nonLeaf->locateChildPtr(key, childPid, uselessEid);//todo: 为啥childPid = 0?????
+      fprintf(stdout, "childPid: %d\n",childPid);
         int newKey = insertHelper(key, rid, curtLevel + 1, childPid, siblingPid);
         if (newKey != 0) { //if has new thing to insert
+          fprintf(stdout, "non leafnode begin inserting\n");
             if (nonLeaf->insert(newKey, siblingPid) != 0) { //nonLeaf OR root overflow
                 if (curtLevel == 1) { // root overflow
                     //create new root
@@ -247,21 +270,33 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
  */
 RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
 {
-    BTLeafNode *targetNode = new BTLeafNode();
-    targetNode->read(cursor.pid, pf);
-    targetNode->readEntry(cursor.eid, key, rid);
-    if (cursor.eid < targetNode->getKeyCount()) {
-        PageId nextPid = targetNode->getNextNodePtr();
-        if (nextPid == 0) { //todo: check
-            return RC_END_OF_TREE;
-        } else {
-            cursor.pid = nextPid;
-            cursor.eid = 0;
-        }
-    } else {
-        cursor.pid = cursor.pid;
-        cursor.eid++;
-    }
-    delete targetNode; //todo: necessary?
-    return 0;
+  RC rc;
+  BTLeafNode *targetNode = new BTLeafNode();
+  rc = targetNode->read(cursor.pid, pf);
+  if (rc < 0) {
+    fprintf(stdout, "targetNode->read(cursor.pid, pf) rc: %d\n",rc);
+    return rc;
+  }
+  rc = targetNode->readEntry(cursor.eid, key, rid);
+  if (rc < 0) {
+    fprintf(stdout, "targetNode->readEntry(cursor.eid, key, rid); rc: %d\n",rc);
+    return rc;
+  }
+  if (cursor.eid == targetNode->getKeyCount() - 1) {
+      PageId nextPid = targetNode->getNextNodePtr();
+      if (nextPid == 0) { //todo: check!!!!!!!
+        fprintf(stdout, "nextPid == 0 rc: %d\n",RC_END_OF_TREE);
+          return RC_END_OF_TREE;
+      } else {
+          cursor.pid = nextPid;
+          cursor.eid = 0;
+        fprintf(stdout, "read next page\n");
+      }
+  } else {
+      cursor.pid = cursor.pid;
+      cursor.eid++;
+    fprintf(stdout, "read next slot\n");
+  }
+  delete targetNode; //todo: necessary?
+  return 0;
 }

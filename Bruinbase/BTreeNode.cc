@@ -44,8 +44,10 @@ int BTLeafNode::getKeyCount()
  */
 RC BTLeafNode::insert(int key, const RecordId& rid)// todo:why use const RecordId&? reference. because too big?
 {
+    RC rc;
     int keyCount = getKeyCount();
     if (keyCount >= LEAF_MAX_KEY_COUNT) {
+        fprintf(stdout, "leafnode full\n");
         return RC_NODE_FULL;
     }
 //    leafEntry newEntry;
@@ -53,7 +55,9 @@ RC BTLeafNode::insert(int key, const RecordId& rid)// todo:why use const RecordI
 //    newEntry.rid = rid;
     //int offset = PRESERVED_SPACE + LEAF_ENTRY_SIZE  * keyCount;
     int eid;
-    locate(key, eid);
+    rc = locate(key, eid);
+    fprintf(stdout, "locate function RC = %d\n",rc);
+    fprintf(stdout, "after locate eid  = %d\n",eid);
     insertHelper(eid, key, rid);
     return 0;
 }
@@ -95,7 +99,8 @@ void BTLeafNode::insertHelper (int eid, int key, const RecordId& rid) {
     int pos = PRESERVED_SPACE + eid * LEAF_ENTRY_SIZE ;
     char * shift = buffer + pos;
     int keyCount = getKeyCount();
-    size_t size = (size_t) ((keyCount - eid + 1) * LEAF_ENTRY_SIZE ); //todo: check
+    fprintf(stdout, "keyCount before insert: %d\n",keyCount);
+    size_t size = (size_t) ((keyCount - eid + 1) * LEAF_ENTRY_SIZE ); //todo: check 貌似不用加1，貌似多了也不影响
     char * tmp = (char*) malloc(size);//todo: check
     memcpy(tmp, shift, size);//todo: memmove vs memcpy, memcpy cannot overlap， but faster
     memcpy(shift, &rid, sizeof(RecordId));
@@ -106,6 +111,7 @@ void BTLeafNode::insertHelper (int eid, int key, const RecordId& rid) {
     free(tmp);
     keyCount++;
     memcpy(buffer, &keyCount, sizeof(int));
+    fprintf(stdout, "keyCount after insert: %d\n",keyCount);
 }
 
 /*
@@ -167,6 +173,7 @@ RC BTLeafNode::insertAndSplit(int key, const RecordId& rid,
 RC BTLeafNode::locate(int searchKey, int& eid) //todo: check
 {
     int keyCount = getKeyCount();
+    fprintf(stdout, "in locate function: keycount = %d\n", keyCount);
 //    int low = PRESERVED_SPACE;
 //    int high = PRESERVED_SPACE + keyCount * LEAF_ENTRY_SIZE ;
     int low = 0;//todo: check, initial with 0 or 1
@@ -223,7 +230,9 @@ int BTLeafNode::entryIDToKey (int id) {
  */
 RC BTLeafNode::readEntry(int eid, int& key, RecordId& rid)
 {
+    fprintf(stdout, "eid: %d\n", eid);
     if (eid >= getKeyCount() || eid < 0) {//todo: check, >= or >
+        fprintf(stdout, "getKeyCount: %d\n",getKeyCount());
         return RC_INVALID_CURSOR;
     }
     int pos = PRESERVED_SPACE + eid * LEAF_ENTRY_SIZE ;
@@ -302,7 +311,7 @@ RC BTNonLeafNode::insert(int key, PageId pid)
 //    rid.pid = pid;
 //    rid.sid = 0;
     int eid;
-    PageId insertPosPid;
+    PageId insertPosPid;//useless parameter for insert but useful for select
     locateChildPtr(key, insertPosPid, eid);
     //insertHelper(eid, key, rid);
     insertHelper(eid, key, pid);
@@ -332,7 +341,10 @@ void BTNonLeafNode::insertHelper (int eid, int key, const PageId& pid) {
     int pos = PRESERVED_SPACE + eid * NONLEAF_ENTRY_SIZE;
     char * shift = buffer + pos;
     int keyCount = getKeyCount();
-    size_t size = (size_t) ((keyCount - eid + 1) * NONLEAF_ENTRY_SIZE); //todo: check
+    if (eid >= keyCount) {
+
+    }
+    size_t size = (size_t) ((keyCount - eid + 1) * NONLEAF_ENTRY_SIZE); //todo: check 要+1么
     char * tmp = (char*) malloc(size);//todo: check
     memcpy(tmp, shift, size);//todo: memmove vs memcpy, memcpy cannot overlap， but faster
     memcpy(shift, &pid, sizeof(PageId));
@@ -402,9 +414,10 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
  * @param pid[OUT] the pointer to the child node to follow.
  * @return 0 if successful. Return an error code if there is an error.
  */
-RC BTNonLeafNode::locateChildPtr(int searchKey, PageId& pid, int& eid)
+RC BTNonLeafNode::locateChildPtr(int searchKey, PageId& pid, int& eid)//原定义没有eid参数，我是为了图省事，省去insert的locate函数，所以加了这个参数，两个函数合在一起了
 {
-    //(pid, key) pid为left pointer,指向小于key的child, 所以要想找到searchKey所在位置应该返回right pointer(>= key),即下一个key的pid
+    fprintf(stdout, "begin locateChildPt\n");
+    //todo:(pid, key) pid为left pointer,指向小于key的child, 所以要想找到searchKey所在位置应该返回right pointer(>= key),即下一个key的pid
     int keyCount = getKeyCount();
     int low = 0;
     int high = keyCount - 1;//todo
@@ -433,6 +446,7 @@ RC BTNonLeafNode::locateChildPtr(int searchKey, PageId& pid, int& eid)
         if (eid > getKeyCount()) {//avoid eid exceeds keyCount, which will cause readEntry statement return error code
             memcpy(&pid, buffer + sizeof(int), sizeof(PageId)); // todo: assume the last right pointer is stored in the preserved space
             return 0; //todo: but how to maintain the last right pointer? what is the last right pointer??
+            // todo: initial root 时没把右指针放在preserved space中，前后不一致!!!!!!
             // todo: 初始化root时,1 key+2 pointers保证有last right pointer
         } else {
             readEntry(eid, resultKey, pid);
@@ -451,7 +465,7 @@ RC BTNonLeafNode::locateChildPtr(int searchKey, PageId& pid, int& eid)
     }
     eid = high + 1;
     if (eid > getKeyCount()) { //avoid eid exceeds keyCount, which will cause readEntry statement return error code
-        memcpy(&pid, buffer + sizeof(int), sizeof(PageId));
+        memcpy(&pid, buffer + sizeof(int), sizeof(PageId)); //将preserved space中存的last ptr 赋值给pid, >= biggest num
         return RC_NO_SUCH_RECORD;
     } else {
         readEntry(eid, resultKey, pid);
@@ -483,8 +497,12 @@ RC BTNonLeafNode::initializeRoot(PageId pid1, int key, PageId pid2)
     memcpy(pos, &pid1, sizeof(PageId));
     pos += sizeof(PageId);
     memcpy(pos, &key, sizeof(int));
-    pos += sizeof(int);
-    memcpy(pos, &pid2, sizeof(PageId));//todo:这个pid是不是应该放在preserved Space中呢？
+
+//    pos += sizeof(int);
+//    memcpy(pos, &pid2, sizeof(PageId));//todo:这个pid是不是应该放在preserved Space中呢？
+
+    memcpy(buffer + sizeof(int), &pid2, sizeof(PageId)); // todo:pid放在preserved Space
+
     int keyCount = 1;
     memcpy(buffer, &keyCount, sizeof(int));
     return 0;//todo: when to return error?
