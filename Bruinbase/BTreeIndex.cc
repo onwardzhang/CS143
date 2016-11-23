@@ -156,6 +156,7 @@ int BTreeIndex:: insertHelper(int key, const RecordId& rid, int curtLevel, PageI
         else { // leaf node not overflow
           fprintf(stdout, "leafnode not overflow\n");
           fprintf(stdout, "rootPid = %d\n", rootPid);
+          fprintf(stdout, "curtPid = %d\n", curtPid);
             rc = leaf->write(curtPid, pf);
           if (rc != 0) {
             fprintf(stdout, "rc = leaf->write(curtPid, pf) fail, rc =%d\n", rc);
@@ -168,9 +169,9 @@ int BTreeIndex:: insertHelper(int key, const RecordId& rid, int curtLevel, PageI
         BTNonLeafNode *nonLeaf = new BTNonLeafNode();
         nonLeaf->read(curtPid, pf);
         PageId childPid;
-        int uselessEid;
-        nonLeaf->locateChildPtr(key, childPid, uselessEid);//todo: 为啥childPid = 0?????
-      fprintf(stdout, "childPid: %d\n",childPid);
+        //int uselessEid;
+        nonLeaf->locateChildPtr(key, childPid);//todo: 为啥childPid = 0?????
+      fprintf(stdout, "childPid= %d\n", childPid);
         int newKey = insertHelper(key, rid, curtLevel + 1, childPid, siblingPid);
         if (newKey != 0) { //if has new thing to insert
           fprintf(stdout, "non leafnode begin inserting\n");
@@ -242,10 +243,10 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
     int curtLevel = 1;
     BTNonLeafNode *tempNode = new BTNonLeafNode();
     PageId tempPid = rootPid;
-    int tempEid;
+    //int tempEid;
     while (curtLevel++ < treeHeight) {
         tempNode->read(tempPid, pf);
-        tempNode->locateChildPtr(searchKey, tempPid, tempEid);
+        tempNode->locateChildPtr(searchKey, tempPid);
     }
     cursor.pid = tempPid;
     BTLeafNode *targetNode = new BTLeafNode();
@@ -277,12 +278,37 @@ RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
     fprintf(stdout, "targetNode->read(cursor.pid, pf) rc: %d\n",rc);
     return rc;
   }
+
+  if (targetNode->getKeyCount() == 0) {
+      if (targetNode->getNextNodePtr() == 0) {
+        fprintf(stdout, "empty node empty nextPtr\n");
+        return RC_END_OF_TREE;
+      } else {
+        cursor.pid = targetNode->getNextNodePtr();
+        cursor.eid = 0;
+        key = -99;
+        fprintf(stdout, "empty node, useless one run time and then read the next page(pid = %d)\n", cursor.pid);
+        return 0;
+        //readForward(cursor, key, rid); //不能这么用递归
+      }
+  }
   rc = targetNode->readEntry(cursor.eid, key, rid);
   if (rc < 0) {
     fprintf(stdout, "targetNode->readEntry(cursor.eid, key, rid); rc: %d\n",rc);
     return rc;
+//    PageId nextPid = targetNode->getNextNodePtr();
+//    if (nextPid == 0) { //todo: check!!!!!!!
+//      fprintf(stdout, "nextPid == 0 rc: %d\n",RC_END_OF_TREE);
+//      return RC_END_OF_TREE;
+//    } else {
+//      cursor.pid = nextPid;
+//      cursor.eid = 0;
+//      fprintf(stdout, "read next page\n");
+//      return 0;
+//    }
   }
-  if (cursor.eid == targetNode->getKeyCount() - 1) {
+
+  if (cursor.eid == targetNode->getKeyCount()) {
       PageId nextPid = targetNode->getNextNodePtr();
       if (nextPid == 0) { //todo: check!!!!!!!
         fprintf(stdout, "nextPid == 0 rc: %d\n",RC_END_OF_TREE);

@@ -50,7 +50,7 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
   int    count = 0;
 
   // open the table file
-  if ((rc = rf.open(table + ".tbl", 'r')) < 0) {
+  if ((rc = rf.open(table + ".tbl", 'r')) < 0) { //read 1
     fprintf(stderr, "Error: table %s does not exist\n", table.c_str());
     return rc;
   }
@@ -145,7 +145,7 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
       fprintf(stdout, "use index\n");
 
       BTreeIndex indexFile; // indexFile containing the B+ tree index
-      // open the index file
+      // open the index file //read 2
       if ((rc = indexFile.open(table + ".idx", 'r')) < 0) { //todo:如果不存在indexFile，该命令是否还是会新建一个空的?
         fprintf(stderr, "Error: indexFile %s does not exist\n", table.c_str());
         return rc;
@@ -162,10 +162,13 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
       while (indexFile.readForward(cursor, key, rid) == 0) {//get key and rid
         fprintf(stdout, "begin reading tuples");
         // readForward return RC_END_OF_TREE if reach the end of the tree;
-        fprintf(stdout, "pid: %d\n",cursor.pid);
-        fprintf(stdout, "eid: %d\n",cursor.eid);
-        fprintf(stdout, "key: %d\n",key);
-        fprintf(stdout, "rid: pid:%d, sid:%d\n",rid.pid, rid.sid);
+        fprintf(stdout, "next pid: %d\n",cursor.pid);
+        fprintf(stdout, "next eid: %d\n",cursor.eid);
+        fprintf(stdout, "this key: %d\n",key);
+        fprintf(stdout, "this rid: pid:%d, sid:%d\n",rid.pid, rid.sid);
+        if (key == -99) {
+          continue;
+        }
         if (key > upperBound) {
           fprintf(stdout, "key > upperBound, break");
           break;

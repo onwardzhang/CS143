@@ -178,7 +178,7 @@ class BTNonLeafNode {
     * @param pid[OUT] the pointer to the child node to follow.
     * @return 0 if successful. Return an error code if there is an error.
     */
-    RC locateChildPtr(int searchKey, PageId& pid, int& eid);
+    RC locateChildPtr(int searchKey, PageId& pid);
 
    /**
     * Initialize the root node with (pid1, key, pid2).
@@ -226,6 +226,7 @@ class BTNonLeafNode {
     //void insertHelper (int eid, int key, const RecordId& rid);
     void insertHelper (int eid, int key, const PageId& pid);
     int entryIDToKey (int id);
+    RC locate(int searchKey, int& eid);
 }; 
 
 #endif /* BTREENODE_H */

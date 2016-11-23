@@ -14,6 +14,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
+#include <iostream>
+#include <fstream>
+
 using std::string;
 
 int PageFile::readCount = 0;
@@ -134,7 +141,8 @@ RC PageFile::write(PageId pid, const void* buffer)
 RC PageFile::read(PageId pid, void* buffer) const
 {
   RC rc;
-
+  //todo: 删除该测试语句
+  fprintf(stdout, "pageFile read !\n");
   if (pid < 0 || pid >= epid) return RC_INVALID_PID; 
 
   //
