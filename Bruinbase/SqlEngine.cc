@@ -140,6 +140,7 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 
 //判断是否要使用index
     bool useIndex = lowerBound > INT_MIN || upperBound < INT_MAX || attr == 4 || attr == 1;
+  //todo: if attr == 4 , maybe we don't need to read every tuple to count, we can just use the keyCount of every leafNode to do this.
     if (useIndex) {
 
       fprintf(stdout, "use index\n");
