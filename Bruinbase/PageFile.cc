@@ -141,8 +141,7 @@ RC PageFile::write(PageId pid, const void* buffer)
 RC PageFile::read(PageId pid, void* buffer) const
 {
   RC rc;
-  //todo: 删除该测试语句
-  fprintf(stdout, "pageFile read !\n");
+
   if (pid < 0 || pid >= epid) return RC_INVALID_PID; 
 
   //
@@ -183,6 +182,7 @@ RC PageFile::read(PageId pid, void* buffer) const
 
   // increase the page read count
   readCount++;
-
+  //todo: 删除该测试语句
+  fprintf(stdout, "pageFile read !\n");
   return 0;
 }

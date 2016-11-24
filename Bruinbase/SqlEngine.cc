@@ -160,6 +160,7 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
       fprintf(stdout, "after locating pid: %d\n",cursor.pid);
       fprintf(stdout, "eid: %d\n",cursor.eid);
 
+      int nodeCount = 1;
       while (indexFile.readForward(cursor, key, rid) == 0) {//get key and rid
         fprintf(stdout, "begin reading tuples");
         // readForward return RC_END_OF_TREE if reach the end of the tree;
@@ -167,7 +168,9 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
         fprintf(stdout, "next eid: %d\n",cursor.eid);
         fprintf(stdout, "this key: %d\n",key);
         fprintf(stdout, "this rid: pid:%d, sid:%d\n",rid.pid, rid.sid);
-        if (key == -99) {
+        if (key == -99) {//todo: 想办法改，key可能等于-99
+          nodeCount++;
+          fprintf(stdout, "\n***********read next node nodeCount = %d*******************\n", nodeCount);
           continue;
         }
         if (key > upperBound) {
@@ -193,7 +196,7 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
         //if ((attr == 1 || attr == 4) && EQValue.size() == 0 &&
             //NEValues.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
         if ((attr == 1 || attr == 4) && EQValueV.size() == 0 &&
-            NEValuesV.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
+            NEValuesV.size() == 0) { //if only select key then there is no need to read the tuple, just return the key,therefore don't need to open the table
 
           fprintf(stdout, "easy search\n");
 
@@ -201,7 +204,15 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
             fprintf(stdout, "key: %d\n", key);
           }
           count++;
+          fprintf(stdout, "\n*****************easy search have read %d tuples*******************\n",count);
         } else {
+//          // open the table file
+//          if ((rc = rf.open(table + ".tbl", 'r')) < 0) { //read 1
+//            fprintf(stderr, "Error: table %s does not exist\n", table.c_str());
+//            return rc;
+//          }
+//          fprintf(stdout, "open table fine\n");
+
           // read the tuple
           if ((rc = rf.read(rid, key, value)) < 0) {
             fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
@@ -238,6 +249,7 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
           }
           //meet all conditions, then count++, print result
           count++;
+          fprintf(stdout, "\n*****************have read %d tuples*******************\n",count);
           //print result
           switch (attr) {
             case 1:
@@ -253,13 +265,27 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
         }
       }
       if (attr == 4) {
-        fprintf(stdout, "%d\n", count);
+        fprintf(stdout, "final count = %d\n", count);
       }
-    indexFile.close();
+    rc = indexFile.close();
+      if (rc < 0) {
+        return rc;
+      }
+//      rc = rf.close();
+//      if (rc < 0) {
+//        return rc;
+//      }
 
     } else { //not use index， use original scanning method
 
       fprintf(stdout, "not use index!\n");
+
+//      // open the table file
+//      if ((rc = rf.open(table + ".tbl", 'r')) < 0) { //read 1
+//        fprintf(stderr, "Error: table %s does not exist\n", table.c_str());
+//        return rc;
+//      }
+//      fprintf(stdout, "open table fine\n");
 
       int  diff;
       // scan the table file from the beginning
@@ -333,6 +359,10 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
       if (attr == 4) {
         fprintf(stdout, "%d\n", count);
       }
+//      rc = rf.close();
+//      if (rc < 0) {
+//        return rc;
+//      }
     }
 //  } else { //single condition e.g. WHERE KEY = / <> 100 或 count(*) 或 value <> "sss", probably can be combined to the former situation
 //
@@ -343,7 +373,10 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 
   // close the table file and return
   exit_select:
-  rf.close();
+  rc = rf.close();
+  if (rc < 0) {
+    return rc;
+  }
   return rc;
 }
 
@@ -362,7 +395,7 @@ RC SqlEngine::load(const string& table, const string& loadfile, bool index)
 
     //append a new record at the end of the file. note that RecordFile does not have write() function.
     // append is the only way to write a record to a RecordFile.
-
+    RC rc;
     RecordFile rf (table + ".tbl",'w');
 
     ifstream fin;
@@ -380,14 +413,26 @@ RC SqlEngine::load(const string& table, const string& loadfile, bool index)
             return RC_FILE_OPEN_FAILED;
         }
 
+      int count = 0;
+
         for (string line; getline(fin, line );) {
             int key;
             string value;
             RecordId rid;
             parseLoadLine(line, key, value);
-            rf.append(key, value, rid);
+            rc = rf.append(key, value, rid);
+          if (rc < 0) {
+            fprintf(stdout, "\n########append error##########\n");
+            return rc;
+          }
           fprintf(stdout, "\n\n*****************insert rid.pid%d, sid%d\n", rid.pid, rid.sid);
-            indexFile.insert(key, rid);
+            rc = indexFile.insert(key, rid);
+          if (rc < 0) {
+            fprintf(stdout, "\n########insert error##########\n");
+            return rc;
+          }
+          count++;
+          fprintf(stdout, "\n*****************have inserted %d tuples*******************\n",count);
         }
         indexFile.close();
         rf.close();
