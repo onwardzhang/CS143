@@ -386,7 +386,7 @@ RC SqlEngine::load(const string& table, const string& loadfile, bool index)
             RecordId rid;
             parseLoadLine(line, key, value);
             rf.append(key, value, rid);
-          fprintf(stdout, "insert rid.pid%d, sid%d\n", rid.pid, rid.sid);
+          fprintf(stdout, "\n\n*****************insert rid.pid%d, sid%d\n", rid.pid, rid.sid);
             indexFile.insert(key, rid);
         }
         indexFile.close();

@@ -319,6 +319,7 @@ RC BTNonLeafNode::insert(int key, PageId pid)
     if (keyCount >= NONLEAF_MAX_KEY_COUNT) {
         return RC_NODE_FULL;
     }
+  fprintf(stdout, " in BTNonLeafNode::insert keyCount of the non-leafNode before insert: %d\n",keyCount);
 //    RecordId rid;
 //    rid.pid = pid;
 //    rid.sid = 0;
@@ -353,6 +354,7 @@ void BTNonLeafNode::insertHelper (int eid, int key, const RecordId& rid) {
 void BTNonLeafNode::insertHelper (int eid, int key, const PageId& pid) {
     int pos = PRESERVED_SPACE + eid * NONLEAF_ENTRY_SIZE;
     int keyCount = getKeyCount();
+  fprintf(stdout, " in BTNonLeafNode::insertHelper keyCount of the non-leafNode before insert: %d\n",keyCount);
     if (eid >= keyCount) {//==
         memcpy(buffer + pos, &key, sizeof(int));
         memcpy(buffer + pos + sizeof(int), &pid, sizeof(PageId));
@@ -369,7 +371,8 @@ void BTNonLeafNode::insertHelper (int eid, int key, const PageId& pid) {
         free(tmp);
     }
     keyCount++;
-    memcpy(buffer, &keyCount, sizeof(int));
+    memcpy(buffer, &keyCount, sizeof(int));//todo: 没更新成功啊！！!!!!
+  fprintf(stdout, "keyCount of the non-leafnode after insert: %d\n",keyCount);
 }
 
 /*
@@ -482,12 +485,13 @@ RC BTNonLeafNode::locateChildPtr(int searchKey, PageId& pid)//原定义没有eid
     //todo: 改为（key,pid), pid为right pointer,所以eid不用+1
     int keyCount = getKeyCount();
     int low = 0;
-    int high = keyCount - 1;//todo: debug --- high一直为0
+    int high = keyCount - 1;//todo: debug --- high一直为0!!!
     int resultKey;
     int eid;
-    fprintf(stdout, "low = %d\n", low);
-    fprintf(stdout, "high = %d\n", high);
+    fprintf(stdout, "\n############ low = %d\n", low);
+    fprintf(stdout, "############ high = %d\n\n", high);
     while (low < high - 1) { //find the first key which is bigger than searchKey
+      fprintf(stdout, " in locateChildPtr begin binary search \n");
         int mid = low + (high - low) / 2;
         int midKey = entryIDToKey(mid);
         fprintf(stdout, "midkey = %d\n", midKey);
