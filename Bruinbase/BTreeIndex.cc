@@ -413,12 +413,12 @@ RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
           cursor.pid = nextPid;
           cursor.eid = 0;
         key = -99;//
-        fprintf(stdout, "read next page\n");
+        fprintf(stdout, "******************read next page*****************\n");
       }
   } else {
       cursor.pid = cursor.pid;
       cursor.eid++;
-    fprintf(stdout, "read next slot\n");
+    //fprintf(stdout, "read next slot\n");
   }
   delete targetNode; //todo: necessary?
   return 0;

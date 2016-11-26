@@ -236,8 +236,8 @@ int BTLeafNode::entryIDToKey (int id) {
  */
 RC BTLeafNode::readEntry(int eid, int& key, RecordId& rid)
 {
-    fprintf(stdout, "eid: %d\n", eid);
-    fprintf(stdout, "keyCount: %d\n", getKeyCount());
+    //fprintf(stdout, "eid: %d\n", eid);
+    //fprintf(stdout, "keyCount: %d\n", getKeyCount());
     if (getKeyCount() == 0) {
         fprintf(stdout, "KeyCount = 0, cannot read in an empty node\n");
         return RC_INVALID_CURSOR;
@@ -249,7 +249,7 @@ RC BTLeafNode::readEntry(int eid, int& key, RecordId& rid)
     int pos = PRESERVED_SPACE + eid * LEAF_ENTRY_SIZE ;
     memcpy(&rid, buffer + pos, sizeof(RecordId));
     memcpy(&key, buffer + pos + sizeof(RecordId), sizeof(int));
-    fprintf(stdout, "read one entry\n");
+    //fprintf(stdout, "read one entry\n");
     return 0;
 }
 
@@ -324,7 +324,7 @@ RC BTNonLeafNode::insert(int key, PageId pid)
 //    rid.pid = pid;
 //    rid.sid = 0;
     int eid;
-    PageId insertPosPid;//useless parameter for insert but useful for select
+    //PageId insertPosPid;//useless parameter for insert but useful for select
     //locateChildPtr(key, insertPosPid, eid);
     locate(key,eid);
     //insertHelper(eid, key, rid);
@@ -360,7 +360,7 @@ void BTNonLeafNode::insertHelper (int eid, int key, const PageId& pid) {
         memcpy(buffer + pos + sizeof(int), &pid, sizeof(PageId));
     } else{
         char * shift = buffer + pos;
-        size_t size = (size_t) ((keyCount - eid + 1) * NONLEAF_ENTRY_SIZE); //todo: check 要+1么
+        size_t size = (size_t) ((keyCount - eid) * NONLEAF_ENTRY_SIZE); //todo: check 要+1么
         char * tmp = (char*) malloc(size);//todo: check
         memcpy(tmp, shift, size);//todo: memmove vs memcpy, memcpy cannot overlap， but faster
         memcpy(shift, &key, sizeof(int));
@@ -397,7 +397,7 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
     sibling.changeBuffer(PRESERVED_SPACE, buffer + splitPos, (size_t) (NONLEAF_ENTRY_SIZE  * NONLEAF_MAX_KEY_COUNT / 2));
     sibling.changeBuffer(0, &keyCount, sizeof(int));
     memset(buffer + splitPos, 0, (size_t) (NONLEAF_ENTRY_SIZE  * NONLEAF_MAX_KEY_COUNT / 2));
-    keyCount++;
+    keyCount++;//64
     memcpy(buffer, &keyCount, sizeof(int));
 
     int oldLastKey;
@@ -412,17 +412,26 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
 //        keyCount++;
 //        memcpy(buffer, &keyCount, sizeof(int));
 
-        midKey = key;
+      //不插入待插入的key，直接返回, 但要把待插入的pid插入到sibling的preserved pid中
+      midKey = key;
+      sibling.changeBuffer(sizeof(int), &pid, sizeof(PageId));
         return 0;
     } else if (key > oldLastKey){
-        sibling.insert(key, pid);
+        sibling.insert(key, pid);//sibling keyCount = 63 + 1; old keyCount = 64
     } else {
-        insert(key, pid);
+        insert(key, pid);//sibling keyCount = 63; old keyCount = 64 + 1
     }
+  //把oldLastPid 插入到sibling的preserved pid中， >= oldLastKey <=> < newFirstKey
+    sibling.changeBuffer(sizeof(int), &oldLastPid, sizeof(PageId));
     midKey = oldLastKey;//todo: 是否应该删除中间点？ 目前删了
     //删除 oldLastKey
     memset(buffer + splitPos - NONLEAF_ENTRY_SIZE, 0, (size_t) NONLEAF_ENTRY_SIZE);//todo:check whether delete successfully
-    return 0;
+  //todo:把old 那个node的keyCount再减一
+    memcpy(&keyCount, buffer, sizeof(int));//64 /65
+    keyCount--;
+    memcpy(buffer, &keyCount, sizeof(int));
+    fprintf(stdout, "$$$$$$$$$$$$$$$$ nonleafnode insert and split $$$$$$$$$$$$$$\n");
+  return 0;
 }
 
 RC BTNonLeafNode::locate(int searchKey, int& eid){ //used for insert

@@ -141,7 +141,8 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 //判断是否要使用index
     bool useIndex = lowerBound > INT_MIN || upperBound < INT_MAX || attr == 4 || attr == 1;
   //todo: if attr == 4 , maybe we don't need to read every tuple to count, we can just use the keyCount of every leafNode to do this.
-    if (useIndex) {
+    //useIndex = false;
+  if (useIndex) {
 
       fprintf(stdout, "use index\n");
 
@@ -162,12 +163,12 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 
       int nodeCount = 1;
       while (indexFile.readForward(cursor, key, rid) == 0) {//get key and rid
-        fprintf(stdout, "begin reading tuples");
-        // readForward return RC_END_OF_TREE if reach the end of the tree;
-        fprintf(stdout, "next pid: %d\n",cursor.pid);
-        fprintf(stdout, "next eid: %d\n",cursor.eid);
-        fprintf(stdout, "this key: %d\n",key);
-        fprintf(stdout, "this rid: pid:%d, sid:%d\n",rid.pid, rid.sid);
+//        fprintf(stdout, "begin reading tuples");
+//        // readForward return RC_END_OF_TREE if reach the end of the tree;
+//        fprintf(stdout, "next pid: %d\n",cursor.pid);
+//        fprintf(stdout, "next eid: %d\n",cursor.eid);
+//        fprintf(stdout, "this key: %d\n",key);
+//        fprintf(stdout, "this rid: pid:%d, sid:%d\n",rid.pid, rid.sid);
         if (key == -99) {//todo: 想办法改，key可能等于-99
           nodeCount++;
           fprintf(stdout, "\n***********read next node nodeCount = %d*******************\n", nodeCount);
@@ -198,13 +199,13 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
         if ((attr == 1 || attr == 4) && EQValueV.size() == 0 &&
             NEValuesV.size() == 0) { //if only select key then there is no need to read the tuple, just return the key,therefore don't need to open the table
 
-          fprintf(stdout, "easy search\n");
+          //fprintf(stdout, "easy search\n");
 
           if (attr == 1) {
-            fprintf(stdout, "key: %d\n", key);
+            fprintf(stdout, "&&&&&&&&&&&&&&   key: %d   &&&&&&&&&&&&&&&&&&&&\n", key);
           }
           count++;
-          fprintf(stdout, "\n*****************easy search have read %d tuples*******************\n",count);
+          fprintf(stdout, "*****************easy search have read %d tuples*******************\n",count);
         } else {
 //          // open the table file
 //          if ((rc = rf.open(table + ".tbl", 'r')) < 0) { //read 1
