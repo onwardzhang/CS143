@@ -39,6 +39,33 @@ RC SqlEngine::run(FILE* commandline)
   return 0;
 }
 
+bool checkValueConds (const vector<SelCond>& valueConds, string value) {
+  for (int j = 0; j < valueConds.size(); j++) {
+    int diff = strcmp(value.c_str(), valueConds[j].value);
+    switch (valueConds[j].comp) {
+      case SelCond::EQ:
+        if (diff != 0) return false;
+        break;
+      case SelCond::NE:
+        if (diff == 0) return false;
+        break;
+      case SelCond::GT:
+        if (diff <= 0) return false;
+        break;
+      case SelCond::LT:
+        if (diff >= 0) return false;
+        break;
+      case SelCond::GE:
+        if (diff < 0) return false;
+        break;
+      case SelCond::LE:
+        if (diff > 0) return false;
+        break;
+    }
+  }
+  return true;
+}
+
 RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 {
   RecordFile rf;   // RecordFile containing the table
@@ -65,6 +92,8 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
   vector<string> NEValuesV;
   //unordered_set<string> EQValue; // todo: EQValue actually doesn't need a set,  just a string is enough
   vector<string> EQValueV;
+  vector<SelCond> valueConds;
+  //vector<int> undoValueIndex;
   //if (cond.size() > 1) {//e.g. WHERE KEY > 100 AND KEY >= 102 AND KEY < 1000 AND KEY <= 998 AND KEY = 100
     // compute range
     int lowerBound = INT_MIN;
@@ -72,7 +101,9 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 
     for (unsigned i = 0; i < cond.size(); i++) {
       if (cond[i].attr == 2) { // 如果condition是关于value的，跳过？
+        valueConds.push_back(cond[i]);
         //undoValueIndex.push_back(i);
+/*        //todo: string comparator
         switch (cond[i].comp) {
           case SelCond::EQ: {
             string strEQ(cond[i].value);
@@ -93,13 +124,13 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
           }
           default:
             return RC_NO_SUCH_RECORD;//todo: if other comparator for value, then return RC_NO_SUCH_RECORD
-        }
+        }*/
         continue;
       }
       //todo: lowerBound upperBound是 >,< 还是>= <=好？， 应该是取等好,已改为取等！
       switch (cond[i].comp) {
         case SelCond::EQ:
-          if (atoi(cond[i].value) > lowerBound && atoi(cond[i].value) < upperBound) { //EQ value 在当前范围内
+          if (atoi(cond[i].value) >= lowerBound && atoi(cond[i].value) <= upperBound) { //EQ value 在当前范围内
             upperBound = atoi(cond[i].value);
             lowerBound = upperBound;
           } else {
@@ -139,6 +170,10 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
   fprintf(stdout, "upperBound: %d\n", upperBound);
 
 //判断是否要使用index
+  //todo: Your program should be "smart" to avoid unnecessary pageread.
+  //todo:  If a query only contains NE on key, you should not use B+ tree.
+  //todo:  However, for the above example, using B+ tree can save more pagereads. Principle is to minimize the pageread.
+ //todo:   Do we allow the key to be 0 then???? yes
     bool useIndex = lowerBound > INT_MIN || upperBound < INT_MAX || attr == 4 || attr == 1;
   //todo: if attr == 4 , maybe we don't need to read every tuple to count, we can just use the keyCount of every leafNode to do this.
     //useIndex = false;
@@ -169,7 +204,8 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 //        fprintf(stdout, "next eid: %d\n",cursor.eid);
 //        fprintf(stdout, "this key: %d\n",key);
 //        fprintf(stdout, "this rid: pid:%d, sid:%d\n",rid.pid, rid.sid);
-        if (key == -99) {//todo: 想办法改，key可能等于-99
+        //todo: 想办法改，key可能等于-99!!!!!!也可能=0
+        if (key == -99) {
           nodeCount++;
           fprintf(stdout, "\n***********read next node nodeCount = %d*******************\n", nodeCount);
           continue;
@@ -196,9 +232,9 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 
         //if ((attr == 1 || attr == 4) && EQValue.size() == 0 &&
             //NEValues.size() == 0) { //if only select key then there is no need to read the tuple, just return the key
-        if ((attr == 1 || attr == 4) && EQValueV.size() == 0 &&
-            NEValuesV.size() == 0) { //if only select key then there is no need to read the tuple, just return the key,therefore don't need to open the table
-
+//        if ((attr == 1 || attr == 4) && EQValueV.size() == 0 &&
+//            NEValuesV.size() == 0) { //if only select key then there is no need to read the tuple, just return the key,therefore don't need to open the table
+          if ((attr == 1 || attr == 4) && valueConds.size() == 0) {
           //fprintf(stdout, "easy search\n");
 
           if (attr == 1) {
@@ -229,7 +265,7 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 //            }
 
           //if (EQValueV.size() != 0) {
-          int j = 0;
+/*          int j = 0;
           for (; j < EQValueV.size(); j++) {
             if (value != EQValueV[j]) { //todo: check != / == for string or char*
               break;
@@ -246,6 +282,37 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
             }
           }
           if (k != NEValuesV.size()) {
+            continue;
+          }*/
+/*            int j = 0;
+            for (; j < undoValueIndex.size(); j++) {
+              int diff = strcmp(value.c_str(), cond[undoValueIndex[j]].value);
+              switch (cond[undoValueIndex[j]].comp) {
+                case SelCond::EQ:
+                  if (diff != 0) break;//break不出去
+                  break;
+                case SelCond::NE:
+                  if (diff == 0) break;
+                  break;
+                case SelCond::GT:
+                  if (diff <= 0) break;
+                  break;
+                case SelCond::LT:
+                  if (diff >= 0) break;
+                  break;
+                case SelCond::GE:
+                  if (diff < 0) break;
+                  break;
+                case SelCond::LE:
+                  if (diff > 0) break;
+                  break;
+              }
+            }
+            if (j != undoValueIndex.size()) {
+              fprintf(stdout, "\n*****************not meet value condition, continue*******************\n");
+              continue;
+            }*/
+          if(!checkValueConds(valueConds, value)) {
             continue;
           }
           //meet all conditions, then count++, print result
