@@ -367,54 +367,31 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
  */
 RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
 {
+  // first to judge if we have already read to the end, if pid = 0, means that the nextPtr of last page is 0, which is end.
+  if (cursor.pid == 0) {
+    fprintf(stdout, "nextPid == 0, END_OF_TREE, rc: %d\n",RC_END_OF_TREE);
+    return RC_END_OF_TREE;
+  }
+
   RC rc;
   BTLeafNode *targetNode = new BTLeafNode();
+
   rc = targetNode->read(cursor.pid, pf);
   if (rc < 0) {
     fprintf(stdout, "targetNode->read(cursor.pid, pf) rc: %d\n",rc);
     return rc;
   }
-//root建法更改后，貌似不会出现这种不合理情况了
-  if (targetNode->getKeyCount() == 0) {
-      if (targetNode->getNextNodePtr() == 0) {
-        fprintf(stdout, "empty node empty nextPtr\n");
-        return RC_END_OF_TREE;
-      } else {
-        cursor.pid = targetNode->getNextNodePtr();
-        cursor.eid = 0;
-        key = -99;
-        fprintf(stdout, "empty node, useless one run time and then read the next page(pid = %d)\n", cursor.pid);
-        return 0;
-        //readForward(cursor, key, rid); //不能这么用递归
-      }
-  }
+
   rc = targetNode->readEntry(cursor.eid, key, rid);
   if (rc < 0) {
     fprintf(stdout, "targetNode->readEntry(cursor.eid, key, rid); rc: %d\n",rc);
-/*    return rc;
-    PageId nextPid = targetNode->getNextNodePtr();
-    if (nextPid == 0) { //todo: check!!!!!!!
-      fprintf(stdout, "nextPid == 0 rc: %d\n",RC_END_OF_TREE);
-      return RC_END_OF_TREE;
-    } else {
-      cursor.pid = nextPid;
-      cursor.eid = 0;
-      fprintf(stdout, "read next page\n");
-      return 0;
-    }*/
+    return rc;
   }
 
-  if (cursor.eid == targetNode->getKeyCount()) {
-      PageId nextPid = targetNode->getNextNodePtr();
-      if (nextPid == 0) { //todo: check!!!!!!!
-        fprintf(stdout, "nextPid == 0 rc: %d\n",RC_END_OF_TREE);
-          return RC_END_OF_TREE;
-      } else {
-          cursor.pid = nextPid;
-          cursor.eid = 0;
-        key = -99;//
-        fprintf(stdout, "******************read next page*****************\n");
-      }
+  if (cursor.eid == targetNode->getKeyCount() - 1) { // have read the last entry in the node, then read next page
+    cursor.pid = targetNode->getNextNodePtr();
+    cursor.eid = 0;
+    fprintf(stdout, "******************read next page*****************\n");
   } else {
       cursor.pid = cursor.pid;
       cursor.eid++;

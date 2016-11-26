@@ -197,6 +197,7 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
       fprintf(stdout, "eid: %d\n",cursor.eid);
 
       int nodeCount = 1;
+
       while (indexFile.readForward(cursor, key, rid) == 0) {//get key and rid
 //        fprintf(stdout, "begin reading tuples");
 //        // readForward return RC_END_OF_TREE if reach the end of the tree;
@@ -204,12 +205,6 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 //        fprintf(stdout, "next eid: %d\n",cursor.eid);
 //        fprintf(stdout, "this key: %d\n",key);
 //        fprintf(stdout, "this rid: pid:%d, sid:%d\n",rid.pid, rid.sid);
-        //todo: 想办法改，key可能等于-99!!!!!!也可能=0
-        if (key == -99) {
-          nodeCount++;
-          fprintf(stdout, "\n***********read next node nodeCount = %d*******************\n", nodeCount);
-          continue;
-        }
         if (key > upperBound) {
           fprintf(stdout, "key > upperBound, break");
           break;
