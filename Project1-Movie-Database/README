@@ -1,0 +1,23 @@
+This is a CS143 Project 1 Part C by Yanming Zhang.
+
+This is a fully functioning Movie Database system that is accessed by users exclusively through a Web interface. 
+
+It satisfies all the baseline capabilities of the requirement, including:
+	4 input pages：
+		 the 4 input pages (add actor/director, add comments, add actor-movie relation and add director-movie relation) are in one of the navigation tabs of the web("Add new content").
+	2 browsing pages:
+		show actor information and show movie information. My understanding of this requirement is different from the demo. In my opinion, "browsing" means show all the information and you can browse all the information, therefore I show all the existing information of actor/movie in the two pages and allow users to click the link for detail information. However, the demo regards the two pages as another search page. The two browsing pages are in one of the navigation tabs of the web("Browsing Content").
+	1 search page:
+		A page that lets users search for an actor/actress/movie through a keyword search interface. The search page also support s multi-word search. The search page is in one of the navigation tabs of the web("Search Interface").
+
+There is also a "Home" tag to return the homepage.
+
+In addition, the web can interact with users. If there is something wrong or invaild with users' inputs, the web will give appropriate warnings rather than going to error pages.
+
+The web also use bootstrap and jquery to make the UI better.
+
+
+
+
+
+
