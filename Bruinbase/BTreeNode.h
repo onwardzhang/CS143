@@ -29,7 +29,7 @@ const int NONLEAF_MAX_KEY_COUNT = (PageFile::PAGE_SIZE - PRESERVED_SPACE) / NONL
 class BTLeafNode {
   public:
     BTLeafNode(void) {
-        memset(buffer, 0 , PageFile::PAGE_SIZE);//initialize to all '0';//todo:check initial value
+        memset(buffer, 0 , PageFile::PAGE_SIZE);//initialize to all '0'
         int keyCount = 0;
         memcpy(buffer, &keyCount, sizeof(int)); //first sizeof(int) of buffer is the keyCount
     }
@@ -125,13 +125,6 @@ class BTLeafNode {
     * that contains the node.
     */
     char buffer[PageFile::PAGE_SIZE];
-
-    typedef struct {
-        RecordId rid;
-        int key;
-    }leafEntry ;
-
-    //int searchPosition (int key);
     int entryIDToKey (int id);
     void insertHelper (int eid, int key, const RecordId& rid);
 };
@@ -143,7 +136,7 @@ class BTLeafNode {
 class BTNonLeafNode {
   public:
     BTNonLeafNode(void) {
-        memset(buffer, 0 , PageFile::PAGE_SIZE);//initialize to all '0';//todo:check initial value
+        memset(buffer, 0 , PageFile::PAGE_SIZE);//initialize to all '0'
         int keyCount = 0;
         memcpy(buffer, &keyCount, sizeof(int)); //first sizeof(int) of buffer is the keyCount
     }
@@ -223,7 +216,6 @@ class BTNonLeafNode {
     * that contains the node.
     */
     char buffer[PageFile::PAGE_SIZE];
-    //void insertHelper (int eid, int key, const RecordId& rid);
     void insertHelper (int eid, int key, const PageId& pid);
     int entryIDToKey (int id);
     RC locate(int searchKey, int& eid);

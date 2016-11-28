@@ -34,6 +34,8 @@ RC BTreeIndex::open(const string &indexname, char mode) {
   }
   if (mode == 'r') { //read
     char buffer[PageFile::PAGE_SIZE];
+    /////////////////todo
+    memset(buffer, 0 , PageFile::PAGE_SIZE);
     rc = pf.read(0, buffer);
     if (rc < 0) {
       return rc;
@@ -43,6 +45,8 @@ RC BTreeIndex::open(const string &indexname, char mode) {
   } else { //write
     if (pf.endPid() == 0) { //create a new index file, write the initial info to first page
       char buffer[PageFile::PAGE_SIZE];
+      /////////////////todo
+      memset(buffer, 0 , PageFile::PAGE_SIZE);
       memcpy(buffer, &rootPid, sizeof(PageId));//-1
       memcpy(buffer + sizeof(PageId), &treeHeight, sizeof(int));//0
       rc = pf.write(0, buffer);
@@ -51,6 +55,8 @@ RC BTreeIndex::open(const string &indexname, char mode) {
       }
     } else { // the index file already exists, read the information about the tree, same as mode 'r'
       char buffer[PageFile::PAGE_SIZE];
+      /////////////////todo
+      memset(buffer, 0 , PageFile::PAGE_SIZE);
       rc = pf.read(0, buffer);
       if (rc < 0) {
         return rc;
@@ -70,6 +76,8 @@ RC BTreeIndex::close() {
   //before close, write the updated treeHeight and rootPid to the disk
   RC rc;
   char buffer[PageFile::PAGE_SIZE];
+  /////////////////todo
+  memset(buffer, 0 , PageFile::PAGE_SIZE);
   memcpy(buffer, &rootPid, sizeof(PageId));
   memcpy(buffer + sizeof(PageId), &treeHeight, sizeof(int));
   rc = pf.write(0, buffer);
@@ -91,27 +99,26 @@ RC BTreeIndex::close() {
  */
 
 RC BTreeIndex::insert(int key, const RecordId &rid) {
-  // tree is not empty, call insertHelper
   RC rc;
-  //fprintf(stdout, "begin inserting a tuple\n");
+  // tree is not empty, call insertHelper
   if (treeHeight != 0) {
-    //fprintf(stdout, "begin inserting a regular tuple\n");
     PageId siblingPid;
     int newRootKey = insertHelper(key, rid, 1, rootPid, siblingPid);
     //if insertHelper return a nonZero value, should create a new root!
     if (newRootKey != 0) {
       //create new root
-      //fprintf(stdout, "**********************creating new root*****************");
       BTNonLeafNode *newRoot = new BTNonLeafNode();
       newRoot->initializeRoot(rootPid, newRootKey, siblingPid);
-      //update tree info
       rootPid = pf.endPid();
       rc = newRoot->write(rootPid, pf);
       if (rc < 0) {
         return rc;
       }
+      //update tree info
       treeHeight++;
       char buffer[PageFile::PAGE_SIZE];
+      /////////////////todo
+      memset(buffer, 0 , PageFile::PAGE_SIZE);
       memcpy(buffer, &rootPid, sizeof(PageId));
       memcpy(buffer + sizeof(PageId), &treeHeight, sizeof(int));
       rc = pf.write(0, buffer);
@@ -120,13 +127,9 @@ RC BTreeIndex::insert(int key, const RecordId &rid) {
       }
       return 0;
     }
-  }
-    // empty tree, create root
-  else {
-    //fprintf(stdout, "******************begin creating the first root*************\n");
+  } else {// empty tree, create root
     BTLeafNode *root = new BTLeafNode();
     rootPid = pf.endPid();
-    //fprintf(stdout, "rootPid = %d\n", rootPid);
     rc = root->insert(key, rid);
     if (rc < 0) {
       return rc;
@@ -136,22 +139,21 @@ RC BTreeIndex::insert(int key, const RecordId &rid) {
       return rc;
     }
     treeHeight++;
-    //todo: the updated rootPid and treeHeight whether need write to pf?
     char buffer[PageFile::PAGE_SIZE];
+    /////////////////todo
+    memset(buffer, 0 , PageFile::PAGE_SIZE);
     memcpy(buffer, &rootPid, sizeof(PageId));
     memcpy(buffer + sizeof(PageId), &treeHeight, sizeof(int));
     rc = pf.write(0, buffer);
     if (rc < 0) {
       return rc;
     }
-    //fprintf(stdout, "finish creating the first root\n\n");
   }
   return 0;
 }
 
 int BTreeIndex::insertHelper(int key, const RecordId &rid, int curtLevel, PageId curtPid, PageId &siblingPid) {
   RC rc;
-  //fprintf(stdout, "begin insertHelper\n");
   if (curtLevel == treeHeight) { //leaf node
     BTLeafNode *leaf = new BTLeafNode();
     rc = leaf->read(curtPid, pf);
@@ -173,15 +175,10 @@ int BTreeIndex::insertHelper(int key, const RecordId &rid, int curtLevel, PageId
       if (rc < 0) {
         return rc;
       }
-      //fprintf(stdout, "***********************leafnode overflow siblingKey: %d**********************\n",siblingKey);
       return siblingKey; // return the first sibling key to insert in the parent node
     } else { // leaf node not overflow
-//          fprintf(stdout, "leafnode not overflow\n");
-//          fprintf(stdout, "rootPid = %d\n", rootPid);
-//          fprintf(stdout, "curtPid = %d\n", curtPid);
       rc = leaf->write(curtPid, pf);
       if (rc < 0) {
-        //fprintf(stdout, "rc = leaf->write(curtPid, pf) fail, rc =%d\n", rc);
         return rc;
       }
       return 0;
@@ -194,12 +191,9 @@ int BTreeIndex::insertHelper(int key, const RecordId &rid, int curtLevel, PageId
     }
     PageId childPid;
     nonLeaf->locateChildPtr(key, childPid);
-    //fprintf(stdout, "childPid= %d\n", childPid);
     //newKey stands for the siblingKey/midKey returned after leafNode/nonLeafNode split
     int newKey = insertHelper(key, rid, curtLevel + 1, childPid, siblingPid);
-    //fprintf(stdout, "\n*****newKey= %d\n\n", newKey);
     if (newKey != 0) { //if has new thing to insert
-      //fprintf(stdout, "*********non leafnode begin inserting***************\n");
       if (nonLeaf->insert(newKey, siblingPid) != 0) { //nonLeaf overflow
         BTNonLeafNode *nonLeafSibling = new BTNonLeafNode();
         PageId nonLeafSiblingPid = pf.endPid();
@@ -273,7 +267,7 @@ RC BTreeIndex::locate(int searchKey, IndexCursor &cursor) {
   if (rc != 0) {
     return rc;
   }
-  delete tempNode;//todo: necessary? others?
+  delete tempNode;
   delete targetNode;
   return 0;
 }
@@ -289,7 +283,6 @@ RC BTreeIndex::locate(int searchKey, IndexCursor &cursor) {
 RC BTreeIndex::readForward(IndexCursor &cursor, int &key, RecordId &rid) {
   // first to judge if we have already read to the end, if pid = 0, means that the nextPtr of last page is 0, which is end.
   if (cursor.pid == 0) {
-    //fprintf(stdout, "nextPid == 0, END_OF_TREE, rc: %d\n",RC_END_OF_TREE);
     return RC_END_OF_TREE;
   }
 
@@ -298,25 +291,21 @@ RC BTreeIndex::readForward(IndexCursor &cursor, int &key, RecordId &rid) {
 
   rc = targetNode->read(cursor.pid, pf);
   if (rc < 0) {
-    //fprintf(stdout, "targetNode->read(cursor.pid, pf) rc: %d\n",rc);
     return rc;
   }
 
   rc = targetNode->readEntry(cursor.eid, key, rid);
   if (rc < 0) {
-    //fprintf(stdout, "targetNode->readEntry(cursor.eid, key, rid); rc: %d\n",rc);
     return rc;
   }
 
   if (cursor.eid == targetNode->getKeyCount() - 1) { // have read the last entry in the node, then read next page
     cursor.pid = targetNode->getNextNodePtr();
     cursor.eid = 0;
-    //fprintf(stdout, "******************read next page*****************\n");
   } else {
     cursor.pid = cursor.pid;
     cursor.eid++;
-    //fprintf(stdout, "read next slot\n");
   }
-  delete targetNode; //todo: necessary?
+  delete targetNode;
   return 0;
 }

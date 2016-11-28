@@ -73,26 +73,20 @@ RC SqlEngine::select(int attr, const string &table, const vector<SelCond> &cond)
   string value;
   int count = 0;
 
-  // open the table file, constant page read 1
-  if ((rc = rf.open(table + ".tbl", 'r')) < 0) {
-    fprintf(stderr, "Error: table %s does not exist\n", table.c_str());
-    return rc;
-  }
-
-  //fprintf(stdout, "open table fine\n");
   vector<int> NEKeysV;
   vector<SelCond> valueConds;
 
   // compute range
+  //lowerBound upperBound can be reached
   int lowerBound = INT_MIN;
   int upperBound = INT_MAX;
 
   for (unsigned i = 0; i < cond.size(); i++) {
+    //ignore all value condition first, push in valuConds, deal with later
     if (cond[i].attr == 2) {
       valueConds.push_back(cond[i]);
       continue;
     }
-    //lowerBound upperBound can be reached
     switch (cond[i].comp) {
       case SelCond::EQ:
         if (atoi(cond[i].value) >= lowerBound && atoi(cond[i].value) <= upperBound) { //EQ value in the range
@@ -129,55 +123,48 @@ RC SqlEngine::select(int attr, const string &table, const vector<SelCond> &cond)
     return RC_NO_SUCH_RECORD;
   }
 
-//  fprintf(stdout, "lowerBound: %d\n", lowerBound);
-//  fprintf(stdout, "upperBound: %d\n", upperBound);
 
-//if need to use BTIndex: key has a range or select on key or count(*)
+  // open the table file, constant page read 1
+  if ((rc = rf.open(table + ".tbl", 'r')) < 0) {
+    fprintf(stderr, "Error: table %s does not exist\n", table.c_str());
+    return rc;
+  }
+
+//whether need use BTIndex: key has a range or select on key or count(*)
   bool useIndex = lowerBound > INT_MIN || upperBound < INT_MAX || attr == 4 || attr == 1;
-  //todo: if attr == 4 , maybe we don't need to read every tuple to count, we can just use the keyCount of every leafNode to do this.
-  //useIndex = false;
+  //if attr == 4, we can just use the keyCount of every leafNode to count but will be complicated when key has a range
   if (useIndex) {
-    //fprintf(stdout, "use index\n");
+    // use index to search
     BTreeIndex indexFile; // indexFile containing the B+ tree index
-    // open the index file, constant page read 2
-    if ((rc = indexFile.open(table + ".idx", 'r')) < 0) { //todo:如果不存在indexFile，该命令是否还是会新建一个空的?
+    if ((rc = indexFile.open(table + ".idx", 'r')) < 0) {  // open the index file, constant page read 2
       fprintf(stderr, "Error: indexFile %s does not exist\n", table.c_str());
       return rc;
     }
-    //fprintf(stdout, "open indexFile successfully\n");
-    // use index to search
+
     IndexCursor cursor;
     indexFile.locate(lowerBound, cursor);//locate the lowerBound (the first possible key)
-//      fprintf(stdout, "after locating pid: %d\n",cursor.pid);
-//      fprintf(stdout, "eid: %d\n",cursor.eid);
-    //int nodeCount = 1;
+
     while (indexFile.readForward(cursor, key, rid) == 0) {//get key and rid
       if (key > upperBound) {
-        //fprintf(stdout, "key > upperBound, break");
         break;
       }
       // check all NE condition for key
       int i = 0;
       for (; i < NEKeysV.size(); i++) {
         if (key == NEKeysV[i]) {
-          fprintf(stdout, "key = NEKeysV, break");
           break;
         }
       }
       if (i != NEKeysV.size()) {
-        fprintf(stdout, "i != NEKeysV.size(), break");
         continue;
       }
 
-//if only select key or count(*) and no condition on value then there is no need to read tuples from table
+      //if only select key or count(*) and no condition on value then there is no need to read tuples from table
       if ((attr == 1 || attr == 4) && valueConds.size() == 0) {
-        //fprintf(stdout, "easy search\n");
         if (attr == 1) {
-          //fprintf(stdout, "&&&&&&&&&&&&&&   key: %d   &&&&&&&&&&&&&&&&&&&&\n", key);
           fprintf(stdout, "%d\n", key);
         }
         count++;
-        //fprintf(stdout, "*****************easy search have read %d tuples*******************\n",count);
       } else {
         // read the tuple
         if (rf.read(rid, key, value) < 0) {
@@ -191,10 +178,8 @@ RC SqlEngine::select(int attr, const string &table, const vector<SelCond> &cond)
         }
         //meet all conditions, then count++, print result
         count++;
-        //fprintf(stdout, "\n*****************have read %d tuples*******************\n",count);
-        //print result
         switch (attr) {
-          case 1:
+          case 1:  // SELECT key
             fprintf(stdout, "%d\n", key);
             break;
           case 2:  // SELECT value
@@ -209,7 +194,6 @@ RC SqlEngine::select(int attr, const string &table, const vector<SelCond> &cond)
 
     if (attr == 4) {
       fprintf(stdout, "%d\n", count);
-      //fprintf(stdout, "final count = %d\n", count);
     }
     rc = indexFile.close();
     if (rc < 0) {
@@ -217,7 +201,6 @@ RC SqlEngine::select(int attr, const string &table, const vector<SelCond> &cond)
     }
 
   } else { //not use index， use original scanning method
-    //fprintf(stdout, "not use index!\n");
     int diff;
     // scan the table file from the beginning
     rid.pid = rid.sid = 0;
@@ -290,14 +273,11 @@ RC SqlEngine::select(int attr, const string &table, const vector<SelCond> &cond)
     if (attr == 4) {
       fprintf(stdout, "%d\n", count);
     }
-    // close the table file and return
-    exit_select:
-    rc = rf.close();
-    if (rc < 0) {
-      return rc;
-    }
-    return rc;
   }
+  // close the table file and return
+  exit_select:
+  rc = rf.close();
+  return rc;
 }
 
 RC SqlEngine::load(const string &table, const string &loadfile, bool index) {
